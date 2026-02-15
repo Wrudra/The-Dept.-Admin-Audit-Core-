@@ -282,3 +282,162 @@ These labs require 1 credit fee payment but grades count as percentage of theory
 - **Waived Courses:** ENG 102 waiver = 127 total credits (instead of 130)
 - **Minimum CGPA:** 2.0 required for graduation
 - **MAT 116:** Score not counted in CGPA but shown until graduation unless excluded by department
+
+---
+
+# Microbiology Undergraduate Program - Course Structure
+
+## Course Categories Overview
+
+| Category            | Credits         |
+| ------------------- | --------------- |
+| University Core     | 28 Credits      |
+| SHLS Core           | 25 Credits      |
+| Major Core Courses  | 49 Credits      |
+| Electives           | 9 Credits       |
+| Free Electives      | 9 Credits       |
+| **Total Credit**    | **120 Credits** |
+
+---
+
+## University Core (28 Credits)
+
+### Languages (12 Credits)
+
+| Course  | Credits |
+| ------- | ------- |
+| Eng102  | 3       |
+| Eng103  | 3       |
+| Eng105  | 3       |
+| Eng111  | 3       |
+| Ben205  | 3       |
+
+### Humanities (3 Credits)
+
+| Course  | Credits |
+| ------- | ------- |
+| His101  | 3       |
+| His103  | 3       |
+| Phi101  | 3       |
+
+_Choose one_
+
+### Social Sciences (3 Credits)
+
+| Course             | Credits |
+| ------------------ | ------- |
+| Pol101 / Pol104    | 3       |
+| Eco101 / Eco104    | 3       |
+| Soc101 / Ant101    | 3       |
+
+_Choose one_
+
+### Computer and Math (9 Credits)
+
+| Course | Credits |
+| ------ | ------- |
+| Mat107 | 3       |
+| Mat116 | 3       |
+| Bus172 | 3       |
+
+### Science (4 Credits)
+
+| Course       | Credits |
+| ------------ | ------- |
+| Bio103       | 3       |
+| **Bio103L**  | **1**   |
+| **Phy107**   | **3**   |
+| **Phy107L**  | **1**   |
+
+_Choose one with lab_
+
+---
+
+## SHLS Core (25 Credits)
+
+| Course                 | Credits | Notes   |
+| ---------------------- | ------- | ------- |
+| CHE101 / CHE101L       | 3 + 1   | Lab     |
+| CHE201                 | 3       |         |
+| CHE202                 | 3       |         |
+| **CHE202L**            | **1**   | **Lab** |
+| BIO201 / MIC110        | 3       |         |
+| BIO103                 | 3       |         |
+| **BIO103L**            | **1**   | **Lab** |
+| BIO201L / MIC101L      | 1       | Lab     |
+| BIO202 / MIC101        | 3       |         |
+| BIO103                 | 3       |         |
+| **BIO103L**            | **1**   | **Lab** |
+| BIO202L / MIC101L      | 1       | Lab     |
+| BIO202 / MIC101        | 3       |         |
+| BIO202/MIC101          | 3       |         |
+| BBT230                 | 3       |         |
+| BUS172                 | 3       |         |
+| MIC203                 | 3       |         |
+| BIO202                 | 3       |         |
+
+---
+
+## Major Core Courses (49 Credits)
+
+| Course             | Credits |
+| ------------------ | ------- |
+| MIC202             | 3       |
+| MIC206             | 3       |
+| MIC203, MIC309     | 3       |
+| MIC307             | 3       |
+| MIC202             | 3       |
+| MIC314             | 3       |
+| BIO202/MIC101, MIC201 | 3    |
+| MIC315             | 3       |
+| **MIC315L**        | **1**   |
+| MIC316             | 3       |
+| **MIC316L**        | **1**   |
+| MIC317             | 3       |
+| **MIC317L**        | **1**   |
+| MIC401             | 3       |
+| MIC412             | 3       |
+| MIC416             | 3       |
+| MIC413             | 3       |
+| **MIC413L**        | **1**   |
+| MIC414             | 3       |
+| **MIC414L**        | **1**   |
+| MIC415             | 3       |
+| **MIC415L**        | **1**   |
+| MIC498             | 3       |
+
+---
+
+## Electives (9 Credits)
+
+_Choose any three courses from the electives list_
+
+| Course  | Credits |
+| ------- | ------- |
+| MIC201  | 3       |
+| MIC318  | 3       |
+| MIC404  | 3       |
+| MIC311  | 3       |
+| MIC309  | 3       |
+| MIC416  | 3       |
+| MIC417  | 3       |
+| MIC317  | 3       |
+| MIC418  | 3       |
+
+---
+
+## Free Electives (9 Credits)
+
+_Any three courses from NSU curriculum_
+
+**Notes:**
+
+- \*Ben205 and His103 are not mandatory
+- Students can choose any three courses from NSU curriculum as free electives
+
+---
+
+## Important Notes - Microbiology Program
+
+- **Total Credits:** 120 Credits
+- **Minimum CGPA:** 2.0 required for graduation
