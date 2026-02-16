@@ -70,28 +70,56 @@ def _extract_course_codes_from_text(text: str) -> Set[str]:
     return codes
 
 
-def load_program_courses(program_path: Path) -> dict[str, Set[str]]:
-    """Parse program.md and return {'CSE': set of course codes, 'MIC': set of course codes}."""
-    result: dict[str, Set[str]] = {"CSE": set(), "MIC": set()}
+def _extract_course_credits_from_text(text: str) -> dict[str, float]:
+    """Extract course -> credits from program markdown tables (for program-specific overrides, e.g. MAT116)."""
+    result: dict[str, float] = {}
+    for line in text.splitlines():
+        if not line.strip().startswith("|") or "|" not in line[1:]:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 2:
+            continue
+        first_cell = re.sub(r"\*\*", "", parts[1].strip())
+        # Credits are in second column (index 2) for 3-col tables, or same for 2-col
+        cred_cell = parts[2].strip() if len(parts) > 2 else "0"
+        if not first_cell or first_cell.upper() in ("COURSE", "CREDITS", "NOTES") or re.match(r"^[-]+$", first_cell):
+            continue
+        cred_match = re.search(r"\d+", cred_cell)
+        cred = float(cred_match.group(0)) if cred_match else 0.0
+        for segment in re.split(r"\s*/\s*|,|\s+and\s+", first_cell, flags=re.IGNORECASE):
+            for match in re.finditer(r"[A-Za-z]+\s*\d+[A-Za-z]*", segment.strip()):
+                code = normalize_course_code(match.group(0))
+                if len(code) >= 4 and code not in ("CHOOSE", "ONE", "LAB", "NONCREDIT"):
+                    result[code] = cred
+    return result
+
+
+def load_program_courses(program_path: Path) -> tuple[dict[str, Set[str]], dict[str, dict[str, float]]]:
+    """Parse program.md; return (course codes per program, course credits per program for overrides)."""
+    codes: dict[str, Set[str]] = {"CSE": set(), "MIC": set()}
+    credits: dict[str, dict[str, float]] = {"CSE": {}, "MIC": {}}
     if not program_path.exists():
-        return result
+        return codes, credits
     try:
         text = program_path.read_text(encoding="utf-8")
     except OSError:
-        return result
-    # Split at Microbiology header: part before = CSE + policy, part after = MIC only
+        return codes, credits
     if "Microbiology Undergraduate Program" in text:
         before_mic, _, after_mic = text.partition("# Microbiology Undergraduate Program")
-        result["MIC"] = _extract_course_codes_from_text(after_mic)
-        # CSE block: only the part starting at "# CSE Undergraduate Program"
+        codes["MIC"] = _extract_course_codes_from_text(after_mic)
+        credits["MIC"] = _extract_course_credits_from_text(after_mic)
         cse_start = before_mic.find("# CSE Undergraduate Program")
         if cse_start >= 0:
-            result["CSE"] = _extract_course_codes_from_text(before_mic[cse_start:])
+            cse_block = before_mic[cse_start:]
+            codes["CSE"] = _extract_course_codes_from_text(cse_block)
+            credits["CSE"] = _extract_course_credits_from_text(cse_block)
     else:
         cse_start = text.find("# CSE Undergraduate Program")
         if cse_start >= 0:
-            result["CSE"] = _extract_course_codes_from_text(text[cse_start:])
-    return result
+            cse_block = text[cse_start:]
+            codes["CSE"] = _extract_course_codes_from_text(cse_block)
+            credits["CSE"] = _extract_course_credits_from_text(cse_block)
+    return codes, credits
 
 
 def parse_credits(raw: str) -> float:
@@ -146,7 +174,7 @@ def valid_credits_for_course(attempts: list[dict]) -> float:
     """
     For one course (all attempts), return credits that count toward graduation.
     - W/I: never count.
-    - 0-credit rows: best attempt may have 0 credits (e.g. MAT116) -> 0.
+    - 0-credit rows: best attempt may have 0 credits (e.g. MAT116 in CSE) -> 0.
     - Retakes: only best passing attempt counts once; if no passing, 0.
     """
     if not attempts:
@@ -159,6 +187,11 @@ def valid_credits_for_course(attempts: list[dict]) -> float:
     # Best passing attempt by grade rank; use that row's credits (0-credit course => 0)
     best = max(passing, key=lambda a: (GRADE_RANK.get(a["grade"], 0), a["credits"]))
     return best["credits"]
+
+
+def has_passing_attempt(attempts: list[dict]) -> bool:
+    """True if the student has at least one passing grade in this course."""
+    return any(is_passing(a["grade"]) for a in attempts)
 
 
 def get_display_grade(attempts: list[dict]) -> str:
@@ -178,20 +211,26 @@ def reason_not_counted(
     course_code: str = "",
     program_name: str = "",
     allowed_codes: Optional[Set[str]] = None,
+    program_credits: Optional[dict[str, dict[str, float]]] = None,
+    program_key: Optional[str] = None,
 ) -> str:
     """Return a specific reason why this course contributes 0 credits."""
     if not attempts:
         return "no attempts on transcript"
-    # If program filter is on and this course is not in the program curriculum, say so first
+    normalized = normalize_course_code(course_code) if course_code else ""
     if allowed_codes is not None and program_name and course_code:
-        normalized = normalize_course_code(course_code)
         if normalized not in allowed_codes:
             return f"not in {program_name} curriculum"
     passing = [a for a in attempts if is_passing(a["grade"])]
     if passing:
         best = max(passing, key=lambda a: (GRADE_RANK.get(a["grade"], 0), a["credits"]))
         if best["credits"] == 0:
-            return "0-credit course (credits not applied toward graduation)"
+            # Only say "0-credit course" if this program defines it as 0 (e.g. MAT116 in CSE, not in MIC)
+            if program_credits and program_key and normalized in program_credits.get(program_key, {}):
+                if program_credits[program_key].get(normalized, 0) == 0:
+                    return "0-credit course (credits not applied toward graduation)"
+            elif not (program_credits and program_key):
+                return "0-credit course (credits not applied toward graduation)"
         return "error: has passing attempt"  # should not appear
     grades = set(a["grade"] for a in attempts)
     parts = []
@@ -211,8 +250,10 @@ def reason_not_counted(
 def compute_total_valid_credits(
     rows: list[dict],
     allowed_codes: Optional[Set[str]] = None,
+    program_credits: Optional[dict[str, dict[str, float]]] = None,
+    program_key: Optional[str] = None,
 ) -> tuple[float, dict[str, float], dict[str, list[dict]]]:
-    """Group by course_code, compute valid credits per course; only count courses in allowed_codes if set."""
+    """Group by course_code, compute valid credits per course; apply program-specific credit overrides (e.g. MAT116)."""
     by_course: dict[str, list[dict]] = {}
     for r in rows:
         code = r["course_code"]
@@ -220,13 +261,21 @@ def compute_total_valid_credits(
 
     per_course = {}
     for code, attempts in by_course.items():
+        normalized = normalize_course_code(code)
         raw_credits = valid_credits_for_course(attempts)
         if allowed_codes is not None:
-            normalized = normalize_course_code(code)
             if normalized not in allowed_codes:
                 per_course[code] = 0.0
             else:
-                per_course[code] = raw_credits
+                # Program-specific credit override (e.g. MAT116: 0 for CSE, 3 for MIC)
+                if program_credits and program_key and normalized in program_credits.get(program_key, {}):
+                    override = program_credits[program_key][normalized]
+                    if has_passing_attempt(attempts):
+                        per_course[code] = override
+                    else:
+                        per_course[code] = 0.0
+                else:
+                    per_course[code] = raw_credits
         else:
             per_course[code] = raw_credits
 
@@ -241,6 +290,8 @@ def print_report(
     by_course: dict[str, list[dict]],
     required_credits: Optional[int] = None,
     allowed_codes: Optional[Set[str]] = None,
+    program_credits: Optional[dict[str, dict[str, float]]] = None,
+    program_key: Optional[str] = None,
 ) -> None:
     """Print one organized report: header, total, and full per-course breakdown."""
     width = 50
@@ -286,6 +337,8 @@ def print_report(
                 course_code=code,
                 program_name=program_name,
                 allowed_codes=allowed_codes,
+                program_credits=program_credits,
+                program_key=program_key,
             )
             status = reason[:col_status] if len(reason) <= col_status else reason[: col_status - 3] + "..."
             print("  | {:<{}} | {:^{}} | {:<{}} | {:<{}} |".format(code, col_code, "—", col_cr, grade, col_grade, status, col_status))
@@ -307,12 +360,18 @@ def main() -> int:
         print(f"Error: transcript file not found: {args.transcript}", file=sys.stderr)
         return 1
 
-    program_courses = load_program_courses(args.program_knowledge)
+    program_codes, program_credits = load_program_courses(args.program_knowledge)
     program_key = (args.program_name or "").strip().upper()
-    allowed_codes = program_courses.get(program_key) if program_key in ("CSE", "MIC") else None
+    allowed_codes = program_codes.get(program_key) if program_key in ("CSE", "MIC") else None
+    credits_by_program = program_credits if program_key in ("CSE", "MIC") else None
 
     rows = load_transcript(args.transcript)
-    total, per_course, by_course = compute_total_valid_credits(rows, allowed_codes=allowed_codes)
+    total, per_course, by_course = compute_total_valid_credits(
+        rows,
+        allowed_codes=allowed_codes,
+        program_credits=credits_by_program,
+        program_key=program_key if program_key in ("CSE", "MIC") else None,
+    )
     required = get_required_credits(args.program_name)
     print_report(
         args.transcript,
@@ -322,6 +381,8 @@ def main() -> int:
         by_course,
         required,
         allowed_codes=allowed_codes,
+        program_credits=credits_by_program,
+        program_key=program_key if program_key in ("CSE", "MIC") else None,
     )
 
     return 0
