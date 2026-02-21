@@ -545,7 +545,7 @@ def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = N
 
     if not eligible_primary:
         print("  No elective courses found in transcript for CSE trails. Skipping major elective selection.")
-        return major_electives, ""
+        return major_electives, "", []
 
     primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses from here):", eligible_primary)
     primary_pool = trail_taken[primary_name]
@@ -586,7 +586,7 @@ def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = N
     else:
         print("  No outside-curriculum courses found in transcript for open elective.")
 
-    return major_electives, open_elective
+    return major_electives, open_elective, []
 
 
 def resolve_mic_aliases(rows: list[dict]) -> dict[str, str]:
