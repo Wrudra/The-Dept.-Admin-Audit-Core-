@@ -12,6 +12,40 @@ import sys
 from pathlib import Path
 from typing import Optional, Set
 
+# CSE Major Elective Trails (from program.md)
+CSE_TRAILS: dict[str, list[str]] = {
+    "Algorithms and Computation": ["CSE257", "CSE417", "CSE326", "CSE426", "CSE273", "CSE473"],
+    "Software Engineering":       ["CSE411"],
+    "Networks":                   ["CSE422", "CSE562", "CSE338", "CSE438", "CSE482", "CSE485", "CSE486"],
+    "Computer Architecture and VLSI": ["CSE435", "CSE413", "CSE414"],
+    "Artificial Intelligence":    ["CSE440", "CSE445", "CSE465", "CSE467", "CSE419", "CSE598"],
+}
+
+# MIC Elective courses (from program.md)
+MIC_ELECTIVES: list[str] = ["MIC201", "MIC318", "MIC404", "MIC311", "MIC309", "MIC416", "MIC417", "MIC317", "MIC418"]
+
+# MIC required course categories — used to flag courses already serving a requirement
+MIC_REQUIRED_CATEGORIES: dict[str, set[str]] = {
+    "University Core": {
+        "ENG102", "ENG103", "ENG105", "ENG111", "BEN205",
+        "HIS101", "HIS103", "PHI101",
+        "POL101", "POL104", "ECO101", "ECO104", "SOC101", "ANT101",
+        "MAT107", "MAT116", "BUS172",
+        "BIO103", "BIO103L", "PHY107", "PHY107L",
+    },
+    "SHLS Core": {
+        "CHE101", "CHE101L", "CHE201", "CHE202", "CHE202L",
+        "BIO201", "MIC110", "BIO103L", "BIO201L", "MIC101L",
+        "BIO202", "BIO202L", "MIC101", "BBT230", "BUS172", "MIC203",
+    },
+    "Major Core": {
+        "MIC202", "MIC206", "MIC309", "MIC307", "MIC314", "MIC201",
+        "MIC315", "MIC315L", "MIC316", "MIC316L", "MIC317", "MIC317L",
+        "MIC401", "MIC412", "MIC416", "MIC413", "MIC413L",
+        "MIC414", "MIC414L", "MIC415", "MIC415L", "MIC498",
+    },
+}
+
 # NSU passing grades, best to worst (for retake: count best passing attempt once)
 GRADE_RANK = {
     "A": 10,
@@ -27,6 +61,9 @@ GRADE_RANK = {
 }
 PASSING_GRADES = set(GRADE_RANK.keys())
 NO_CREDIT_GRADES = {"F", "W", "I"}  # Failure, Withdrawal, Incomplete
+
+# Non-credit labs: included in theory course grade, never shown separately in reports
+NCL_LABS = {"CSE225L", "CSE231L", "CSE311L", "CSE331L", "CSE332L", "BIO103L"}
 
 # Required total credits per program (from program.md)
 PROGRAM_REQUIRED_CREDITS = {"CSE": 130, "MIC": 120}
@@ -84,13 +121,22 @@ def _extract_course_credits_from_text(text: str) -> dict[str, float]:
         cred_cell = parts[2].strip() if len(parts) > 2 else "0"
         if not first_cell or first_cell.upper() in ("COURSE", "CREDITS", "NOTES") or re.match(r"^[-]+$", first_cell):
             continue
-        cred_match = re.search(r"\d+", cred_cell)
-        cred = float(cred_match.group(0)) if cred_match else 0.0
+        # Explicitly handle "Non-Credit" cells — these are 0-credit courses by definition
+        if re.match(r"non-?credit", cred_cell, flags=re.IGNORECASE):
+            cred_values = [0.0]
+        else:
+            # Handle "3 + 1" style cells (theory + lab split) — assign in order to each code
+            cred_values = [float(m) for m in re.findall(r"\d+\.?\d*", cred_cell)] or [0.0]
+
+        codes_in_row: list[str] = []
         for segment in re.split(r"\s*/\s*|,|\s+and\s+", first_cell, flags=re.IGNORECASE):
             for match in re.finditer(r"[A-Za-z]+\s*\d+[A-Za-z]*", segment.strip()):
                 code = normalize_course_code(match.group(0))
                 if len(code) >= 4 and code not in ("CHOOSE", "ONE", "LAB", "NONCREDIT"):
-                    result[code] = cred
+                    codes_in_row.append(code)
+
+        for i, code in enumerate(codes_in_row):
+            result[code] = cred_values[i] if i < len(cred_values) else cred_values[-1]
     return result
 
 
@@ -224,14 +270,21 @@ def reason_not_counted(
     passing = [a for a in attempts if is_passing(a["grade"])]
     if passing:
         best = max(passing, key=lambda a: (GRADE_RANK.get(a["grade"], 0), a["credits"]))
-        if best["credits"] == 0:
-            # Only say "0-credit course" if this program defines it as 0 (e.g. MAT116 in CSE, not in MIC)
-            if program_credits and program_key and normalized in program_credits.get(program_key, {}):
-                if program_credits[program_key].get(normalized, 0) == 0:
-                    return "0-credit course (credits not applied toward graduation)"
-            elif not (program_credits and program_key):
-                return "0-credit course (credits not applied toward graduation)"
-        return "error: has passing attempt"  # should not appear
+        # Check effective credit: program override takes priority over transcript credits
+        program_defined_credit = (
+            program_credits[program_key].get(normalized)
+            if program_credits and program_key and normalized in program_credits.get(program_key, {})
+            else None
+        )
+        effective_credit = program_defined_credit if program_defined_credit is not None else best["credits"]
+        if effective_credit == 0:
+            if program_defined_credit == 0:
+                # Distinguish between 0-credit courses (MAT116) and non-credit labs (CSE225L)
+                label = "non-credit lab" if normalized.endswith("L") else "0-credit course"
+                return f"{label} (credits not applied toward graduation)"
+            else:
+                return "transcript shows 0 credits (check transcript data)"
+        return "error: has passing attempt but counted 0 (report bug)"  # should not appear
     grades = set(a["grade"] for a in attempts)
     parts = []
     if "F" in grades:
@@ -262,6 +315,10 @@ def compute_total_valid_credits(
     per_course = {}
     for code, attempts in by_course.items():
         normalized = normalize_course_code(code)
+        # Non-credit labs are never counted regardless of program credit definition
+        if normalized in NCL_LABS:
+            per_course[code] = 0.0
+            continue
         raw_credits = valid_credits_for_course(attempts)
         if allowed_codes is not None:
             if normalized not in allowed_codes:
@@ -292,8 +349,12 @@ def print_report(
     allowed_codes: Optional[Set[str]] = None,
     program_credits: Optional[dict[str, dict[str, float]]] = None,
     program_key: Optional[str] = None,
+    major_electives: Optional[list[str]] = None,
+    open_elective: str = "",
 ) -> None:
     """Print one organized report: header, total, and full per-course breakdown."""
+    major_set = set(normalize_course_code(c) for c in (major_electives or []))
+    open_code = normalize_course_code(open_elective) if open_elective else ""
     width = 50
     print("=" * width)
     print("  LEVEL 1: CREDIT TALLY REPORT")
@@ -306,10 +367,10 @@ def print_report(
     else:
         print(f"  TOTAL VALID CREDITS:  {total:.1f}")
     print("-" * width)
-    counted = [(c, cr) for c, cr in sorted(per_course.items()) if cr > 0]
-    excluded = [(c, cr) for c, cr in sorted(per_course.items()) if cr == 0]
+    counted = [(c, cr) for c, cr in sorted(per_course.items()) if cr > 0 and normalize_course_code(c) not in NCL_LABS]
+    excluded = [(c, cr) for c, cr in sorted(per_course.items()) if cr == 0 and normalize_course_code(c) not in NCL_LABS]
 
-    col_code, col_cr, col_grade, col_status = 14, 10, 8, 40
+    col_code, col_cr, col_grade, col_status = 14, 10, 8, 55
     sep = "  +" + "-" * (col_code + 2) + "+" + "-" * (col_cr + 2) + "+" + "-" * (col_grade + 2) + "+" + "-" * (col_status + 2) + "+"
     header = "  | {:^{}} | {:^{}} | {:^{}} | {:^{}} |".format("Course", col_code, "Credits", col_cr, "Grade", col_grade, "Status", col_status)
 
@@ -320,7 +381,14 @@ def print_report(
     print(sep)
     for code, cr in counted:
         grade = get_display_grade(by_course[code])
-        print("  | {:<{}} | {:>{}.1f} | {:<{}} | {:<{}} |".format(code, col_code, cr, col_cr, grade, col_grade, "Counted", col_status))
+        normalized = normalize_course_code(code)
+        if normalized == open_code:
+            status = "Counted [Open Elective]"
+        elif normalized in major_set:
+            status = "Counted [Major Elective]"
+        else:
+            status = "Counted"
+        print("  | {:<{}} | {:>{}.1f} | {:<{}} | {:<{}} |".format(code, col_code, cr, col_cr, grade, col_grade, status, col_status))
     print(sep)
     print()
 
@@ -347,13 +415,249 @@ def print_report(
     print("=" * width)
 
 
+def _mic_course_category(code: str) -> Optional[str]:
+    """Return the MIC required category name for a course code, or None if not required."""
+    normalized = normalize_course_code(code)
+    for category, codes in MIC_REQUIRED_CATEGORIES.items():
+        if normalized in codes:
+            return category
+    return None
+
+
+def _prompt_pick(prompt: str, options: list[str], display: Optional[list[str]] = None) -> str:
+    """Show a numbered menu of options and return the chosen one. Re-prompts on invalid input."""
+    labels = display if display and len(display) == len(options) else options
+    while True:
+        if prompt:
+            print(prompt)
+        for i, label in enumerate(labels, 1):
+            print(f"  {i}. {label}")
+        raw = input("  Enter number: ").strip()
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(options):
+                return options[idx]
+        print("  Invalid input, please try again.\n")
+
+
+def _course_display(code: str, rows: list[dict]) -> str:
+    """Return a display string for a course: 'CSE440  (3 cr, A-)'."""
+    attempts = [r for r in rows if normalize_course_code(r["course_code"]) == normalize_course_code(code)]
+    passing = [a for a in attempts if is_passing(a["grade"])]
+    if passing:
+        best = max(passing, key=lambda a: (GRADE_RANK.get(a["grade"], 0), a["credits"]))
+        cr = best["credits"]
+        cr_str = str(int(cr)) if cr == int(cr) else str(cr)
+        return f"{code:<10}  ({cr_str} cr, {best['grade']})"
+    return code
+
+
+def _get_taken_courses(rows: list[dict]) -> list[str]:
+    """Return unique course codes from the transcript that have at least one passing grade."""
+    seen: dict[str, list[dict]] = {}
+    for r in rows:
+        seen.setdefault(r["course_code"], []).append(r)
+    return [code for code, attempts in seen.items() if has_passing_attempt(attempts)]
+
+
+def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = None) -> tuple[list[str], str]:
+    """
+    CSE elective selection driven by transcript.
+    Returns (major_electives, open_elective).
+    major_electives: up to 3 courses (2 from primary trail, 1 from secondary).
+    open_elective: 1 course from trail courses or outside curriculum.
+    """
+    taken = set(_get_taken_courses(rows))
+
+    # Build trail -> taken courses mapping
+    trail_taken: dict[str, list[str]] = {}
+    for trail_name, codes in CSE_TRAILS.items():
+        matched = [c for c in codes if c in taken]
+        if matched:
+            trail_taken[trail_name] = matched
+
+    print("\n" + "=" * 50)
+    print("  CSE MAJOR ELECTIVE SELECTION")
+    print("  Showing courses from your transcript only.")
+    print("  Rule: 2 from one trail + 1 from another + 1 open elective")
+    print("=" * 50)
+
+    # --- Overview: show all available elective courses before prompting ---
+    print("\n  Available elective courses from your transcript:\n")
+    for trail_name, codes in trail_taken.items():
+        print(f"  [{trail_name}]")
+        for c in codes:
+            print(f"    {_course_display(c, rows)}")
+    # Open elective pool preview — trail courses + courses outside CSE curriculum
+    all_trail_codes = {c for trail in CSE_TRAILS.values() for c in trail}
+    open_preview = sorted([
+        c for c in taken
+        if c in all_trail_codes or c not in (allowed_codes or set())
+    ])
+    if open_preview:
+        print(f"\n  [Open Elective candidates]  (trail courses + outside curriculum)")
+        for c in open_preview:
+            print(f"    {_course_display(c, rows)}")
+    print()
+
+    major_electives: list[str] = []
+
+    # --- Primary trail: 2 courses ---
+    eligible_primary = [t for t, c in trail_taken.items() if len(c) >= 2]
+    if not eligible_primary:
+        eligible_primary = list(trail_taken.keys())
+
+    if not eligible_primary:
+        print("  No elective courses found in transcript for CSE trails. Skipping major elective selection.")
+        return major_electives, ""
+
+    primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses from here):", eligible_primary)
+    primary_pool = trail_taken[primary_name]
+
+    print(f"\nSelect course 1 of 2 from '{primary_name}':")
+    c1 = _prompt_pick("", primary_pool, display=[_course_display(c, rows) for c in primary_pool])
+    major_electives.append(c1)
+
+    remaining_primary = [c for c in primary_pool if c != c1]
+    if remaining_primary:
+        print(f"\nSelect course 2 of 2 from '{primary_name}':")
+        c2 = _prompt_pick("", remaining_primary, display=[_course_display(c, rows) for c in remaining_primary])
+        major_electives.append(c2)
+    else:
+        print(f"  Only one course available in '{primary_name}' from your transcript — counting {c1} only.")
+
+    # --- Secondary trail: 1 course ---
+    secondary_options = [t for t in trail_taken if t != primary_name]
+    if secondary_options:
+        secondary_name = _prompt_pick("\nSelect your SECONDARY trail (1 course from here):", secondary_options)
+        secondary_pool = trail_taken[secondary_name]
+        print(f"\nSelect 1 course from '{secondary_name}':")
+        c3 = _prompt_pick("", secondary_pool, display=[_course_display(c, rows) for c in secondary_pool])
+        major_electives.append(c3)
+    else:
+        print("  No secondary trail courses found in transcript — skipping.")
+
+    # --- Open elective: remaining trail courses (not selected) + courses outside CSE curriculum ---
+    open_pool = sorted([
+        c for c in taken
+        if c not in set(major_electives)
+        and (c in all_trail_codes or c not in (allowed_codes or set()))
+    ])
+    open_elective = ""
+    if open_pool:
+        print("\nSelect your OPEN ELECTIVE (outside CSE curriculum + unselected major electives):")
+        open_elective = _prompt_pick("", open_pool, display=[_course_display(c, rows) for c in open_pool])
+    else:
+        print("  No outside-curriculum courses found in transcript for open elective.")
+
+    return major_electives, open_elective
+
+
+def select_electives_mic(rows: list[dict]) -> tuple[list[str], str]:
+    """
+    MIC elective selection driven by transcript.
+    Returns (major_electives, open_elective) where major_electives has up to 3 courses.
+    Free electives are treated as open electives (first one shown as open, rest as major).
+    """
+    taken = set(_get_taken_courses(rows))
+
+    print("\n" + "=" * 50)
+    print("  MIC ELECTIVE SELECTION")
+    print("  Showing courses from your transcript only.")
+    print("  Rule: 3 major electives + 3 free electives")
+    print("=" * 50)
+
+    # --- Overview: show only truly free elective candidates ---
+    major_pool = [c for c in MIC_ELECTIVES if c in taken]
+    all_non_major = sorted(c for c in taken if c not in set(major_pool))
+    free_available = [c for c in all_non_major if _mic_course_category(c) is None]
+
+    print("\n  Available major elective courses from your transcript:\n")
+    if major_pool:
+        for c in major_pool:
+            print(f"    {_course_display(c, rows)}")
+    else:
+        print("    (none)")
+
+    print(f"\n  [Free Elective candidates]")
+    print(f"  (outside-curriculum courses + unselected major electives)\n")
+    all_free_preview = free_available + major_pool
+    if all_free_preview:
+        for c in all_free_preview:
+            print(f"    {_course_display(c, rows)}")
+    else:
+        print("    (none — all passed courses are already serving required categories)")
+    print()
+
+    major_electives: list[str] = []
+
+    major_pool = [c for c in MIC_ELECTIVES if c in taken]
+    remaining = list(major_pool)
+    if not remaining:
+        print("  No MIC elective courses found in transcript.")
+    else:
+        for i in range(1, 4):
+            if not remaining:
+                print(f"  No more elective courses available (selected {i - 1} of 3).")
+                break
+            course = _prompt_pick(f"\nSelect major elective {i} of 3:", remaining,
+                                  display=[_course_display(c, rows) for c in remaining])
+            major_electives.append(course)
+            remaining = [c for c in remaining if c != course]
+
+    # Remaining MIC electives not chosen as major electives are also free elective candidates
+    remaining_major_pool = [c for c in major_pool if c not in set(major_electives)]
+    free_pool = free_available + [c for c in remaining_major_pool if c not in free_available]
+    free_pool = [c for c in free_pool if c not in set(major_electives)]
+    open_elective = ""
+    free_extras: list[str] = []
+    if not free_pool:
+        print("\n  No free elective courses available in transcript.")
+    else:
+        print(f"\nSelect 3 FREE ELECTIVES:\n")
+        for i in range(1, 4):
+            if not free_pool:
+                print(f"  No more courses available (selected {i - 1} of 3).")
+                break
+            course = _prompt_pick(f"Free elective {i} of 3:", free_pool,
+                                  display=[_course_display(c, rows) for c in free_pool])
+            if i == 1:
+                open_elective = course
+            else:
+                free_extras.append(course)
+            free_pool = [c for c in free_pool if c != course]
+
+    return major_electives + free_extras, open_elective
+
+
+def select_electives(program_key: str, rows: list[dict], allowed_codes: Optional[Set[str]] = None) -> tuple[list[str], str]:
+    """Dispatch elective selection by program. Returns (major_electives, open_elective)."""
+    if program_key == "CSE":
+        return select_electives_cse(rows, allowed_codes=allowed_codes)
+    elif program_key == "MIC":
+        return select_electives_mic(rows)
+    return [], ""
+
+
+def print_elective_summary(major_electives: list[str], open_elective: str, program_key: str) -> None:
+    """Print a confirmation of selected electives before running the audit."""
+    print("\n" + "-" * 50)
+    print("  SELECTED ELECTIVES (will be included in tally)")
+    print("-" * 50)
+    for code in major_electives:
+        print(f"  • {code}  [Major Elective]")
+    if open_elective:
+        print(f"  • {open_elective}  [Open Elective]")
+    print("-" * 50 + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Level 1: Credit Tally Engine — total valid credits from transcript."
     )
     parser.add_argument("transcript", type=Path, help="Path to transcript CSV")
-    parser.add_argument("program_name", type=str, help="Program name (unused in L1)")
-    parser.add_argument("program_knowledge", type=Path, help="Path to program knowledge file (unused in L1)")
+    parser.add_argument("program_name", type=str, help="Program name: CSE or MIC — determines required credits, curriculum filter, and elective selection")
+    parser.add_argument("program_knowledge", type=Path, help="Path to program knowledge markdown file (program.md)")
     args = parser.parse_args()
 
     if not args.transcript.exists():
@@ -365,7 +669,23 @@ def main() -> int:
     allowed_codes = program_codes.get(program_key) if program_key in ("CSE", "MIC") else None
     credits_by_program = program_credits if program_key in ("CSE", "MIC") else None
 
+    # Gate elective courses behind selection — remove from base allowed set so unselected ones don't count
+    if program_key == "MIC" and allowed_codes is not None:
+        allowed_codes = allowed_codes - set(MIC_ELECTIVES)
+
     rows = load_transcript(args.transcript)
+
+    # --- Elective Selection ---
+    major_electives: list[str] = []
+    open_elective: str = ""
+    if program_key in ("CSE", "MIC"):
+        major_electives, open_elective = select_electives(program_key, rows, allowed_codes=allowed_codes)
+        print_elective_summary(major_electives, open_elective, program_key)
+        # Merge selected electives into allowed curriculum so they count toward the tally
+        if allowed_codes is not None:
+            all_selected = set(major_electives) | ({open_elective} if open_elective else set())
+            allowed_codes = allowed_codes | all_selected
+
     total, per_course, by_course = compute_total_valid_credits(
         rows,
         allowed_codes=allowed_codes,
@@ -383,6 +703,8 @@ def main() -> int:
         allowed_codes=allowed_codes,
         program_credits=credits_by_program,
         program_key=program_key if program_key in ("CSE", "MIC") else None,
+        major_electives=major_electives,
+        open_elective=open_elective,
     )
 
     return 0
