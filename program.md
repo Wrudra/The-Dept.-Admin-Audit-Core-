@@ -324,25 +324,29 @@ _Contact DMP for more details_
 
 ---
 
-## University Core (28 Credits)
+## University Core (31 Credits with ENG102 / 28 Credits if ENG102 Waived)
 
-### Languages (12 Credits)
+### Languages (12 Credits with ENG102 / 9 Credits if ENG102 Waived)
 
-| Course | Credits |
-| ------ | ------- |
-| Eng102 | 3       |
-| Eng103 | 3       |
-| Eng105 | 3       |
-| Eng111 | 3       |
-| Ben205 | 3       |
+**Notes:**
+
+- **ENG103 and ENG105 are mandatory** language courses for all NSU UG students
+- **BEN205 or ENG111** — choose one; Batch 163+ must take BEN205
+
+| Course          | Credits | Notes                                        |
+| --------------- | ------- | -------------------------------------------- |
+| ENG102          | 3       | _0 if waived_                                |
+| ENG103          | 3       | **Mandatory**                                |
+| ENG105          | 3       | **Mandatory**                                |
+| BEN205 / ENG111 | 3       | Choose one (BEN205 mandatory for Batch 163+) |
 
 ### Humanities (3 Credits)
 
 | Course | Credits |
 | ------ | ------- |
-| His101 | 3       |
-| His103 | 3       |
-| Phi101 | 3       |
+| HIS101 | 3       |
+| HIS103 | 3       |
+| PHI101 | 3       |
 
 _Choose one_
 
@@ -350,9 +354,9 @@ _Choose one_
 
 | Course          | Credits |
 | --------------- | ------- |
-| Pol101 / Pol104 | 3       |
-| Eco101 / Eco104 | 3       |
-| Soc101 / Ant101 | 3       |
+| POL101 / POL104 | 3       |
+| ECO101 / ECO104 | 3       |
+| SOC101 / ANT101 | 3       |
 
 _Choose one_
 
@@ -360,20 +364,20 @@ _Choose one_
 
 | Course | Credits |
 | ------ | ------- |
-| Mat107 | 3       |
-| Mat116 | 3       |
-| Bus172 | 3       |
+| MIS107 | 3       |
+| MAT116 | 3       |
+| BUS172 | 3       |
 
-### Science (4 Credits)
+### Science (4 Credits — Choose one pair)
 
-| Course      | Credits |
-| ----------- | ------- |
-| Bio103      | 3       |
-| **Bio103L** | **1**   |
-| **Phy107**  | **3**   |
-| **Phy107L** | **1**   |
+| Option | Course      | Credits |
+| ------ | ----------- | ------- |
+| A      | BIO103      | 3       |
+| A      | **BIO103L** | **1**   |
+| B      | PHY107      | 3       |
+| B      | **PHY107L** | **1**   |
 
-_Choose one with lab_
+_Choose one pair (A or B). PHY107 has prerequisite MAT120._
 
 ---
 
@@ -381,53 +385,44 @@ _Choose one with lab_
 
 | Course            | Credits | Notes   |
 | ----------------- | ------- | ------- |
-| CHE101 / CHE101L  | 3 + 1   | Lab     |
+| BBT230            | 3       |         |
+| CHE101            | 3       |         |
+| **CHE101L**       | **1**   | **Lab** |
 | CHE201            | 3       |         |
 | CHE202            | 3       |         |
 | **CHE202L**       | **1**   | **Lab** |
 | BIO201 / MIC110   | 3       |         |
-| BIO103            | 3       |         |
-| **BIO103L**       | **1**   | **Lab** |
-| BIO201L / MIC101L | 1       | Lab     |
+| BIO201L / MIC110L | 1       | **Lab** |
 | BIO202 / MIC101   | 3       |         |
-| BIO103            | 3       |         |
-| **BIO103L**       | **1**   | **Lab** |
-| BIO202L / MIC101L | 1       | Lab     |
-| BIO202 / MIC101   | 3       |         |
-| BIO202/MIC101     | 3       |         |
-| BBT230            | 3       |         |
-| BUS172            | 3       |         |
+| BIO202L / MIC101L | 1       | **Lab** |
 | MIC203            | 3       |         |
-| BIO202            | 3       |         |
 
 ---
 
 ## Major Core Courses (49 Credits)
 
-| Course         | Credits |
-| -------------- | ------- |
-| MIC202         | 3       |
-| MIC206         | 3       |
-| MIC203, MIC309 | 3       |
-| MIC307         | 3       |
-| MIC202         | 3       |
-| MIC314         | 3       |
-| BIO202/MIC101  | 3       |
-| MIC315         | 3       |
-| **MIC315L**    | **1**   |
-| MIC316         | 3       |
-| **MIC316L**    | **1**   |
-| MIC317         | 3       |
-| **MIC317L**    | **1**   |
-| MIC401         | 3       |
-| MIC412         | 3       |
-| MIC413         | 3       |
-| **MIC413L**    | **1**   |
-| MIC414         | 3       |
-| **MIC414L**    | **1**   |
-| MIC415         | 3       |
-| **MIC415L**    | **1**   |
-| MIC498         | 3       |
+| Course      | Credits |
+| ----------- | ------- |
+| MIC202      | 3       |
+| MIC206      | 3       |
+| MIC207      | 3       |
+| MIC307      | 3       |
+| MIC314      | 3       |
+| MIC315      | 3       |
+| **MIC315L** | **1**   |
+| MIC316      | 3       |
+| **MIC316L** | **1**   |
+| MIC317      | 3       |
+| **MIC317L** | **1**   |
+| MIC401      | 3       |
+| MIC412      | 3       |
+| MIC413      | 3       |
+| **MIC413L** | **1**   |
+| MIC414      | 3       |
+| **MIC414L** | **1**   |
+| MIC415      | 3       |
+| **MIC415L** | **1**   |
+| MIC498      | 4       |
 
 ---
 
@@ -454,12 +449,14 @@ _Any three courses from NSU curriculum_
 
 **Notes:**
 
-- \*Ben205 and His103 are not mandatory
-- Students can choose any three courses from NSU curriculum as free electives
+- Students are **encouraged** to take all 3 Free Elective courses from the Elective & Free Elective Courses list to strengthen their knowledge in Microbiology
+- Free electives are not restricted to MIC courses — any NSU curriculum course is valid
 
 ---
 
 ## Important Notes - Microbiology Program
 
-- **Total Credits:** 120 Credits
+- **Total Credits:** 120 Credits (31 with ENG102) or 28 University Core credits if ENG102 waived
 - **Minimum CGPA:** 2.0 required for graduation
+- **BEN205 and HIS103** are mandatory for all NSU UG students from Batch 163 onwards
+- **ENG103 and ENG105** are mandatory language courses for all NSU UG students
