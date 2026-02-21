@@ -404,31 +404,30 @@ _Choose one with lab_
 
 ## Major Core Courses (49 Credits)
 
-| Course                | Credits |
-| --------------------- | ------- |
-| MIC202                | 3       |
-| MIC206                | 3       |
-| MIC203, MIC309        | 3       |
-| MIC307                | 3       |
-| MIC202                | 3       |
-| MIC314                | 3       |
-| BIO202/MIC101, MIC201 | 3       |
-| MIC315                | 3       |
-| **MIC315L**           | **1**   |
-| MIC316                | 3       |
-| **MIC316L**           | **1**   |
-| MIC317                | 3       |
-| **MIC317L**           | **1**   |
-| MIC401                | 3       |
-| MIC412                | 3       |
-| MIC416                | 3       |
-| MIC413                | 3       |
-| **MIC413L**           | **1**   |
-| MIC414                | 3       |
-| **MIC414L**           | **1**   |
-| MIC415                | 3       |
-| **MIC415L**           | **1**   |
-| MIC498                | 3       |
+| Course         | Credits |
+| -------------- | ------- |
+| MIC202         | 3       |
+| MIC206         | 3       |
+| MIC203, MIC309 | 3       |
+| MIC307         | 3       |
+| MIC202         | 3       |
+| MIC314         | 3       |
+| BIO202/MIC101  | 3       |
+| MIC315         | 3       |
+| **MIC315L**    | **1**   |
+| MIC316         | 3       |
+| **MIC316L**    | **1**   |
+| MIC317         | 3       |
+| **MIC317L**    | **1**   |
+| MIC401         | 3       |
+| MIC412         | 3       |
+| MIC413         | 3       |
+| **MIC413L**    | **1**   |
+| MIC414         | 3       |
+| **MIC414L**    | **1**   |
+| MIC415         | 3       |
+| **MIC415L**    | **1**   |
+| MIC498         | 3       |
 
 ---
 
@@ -445,7 +444,6 @@ _Choose any three courses from the electives list_
 | MIC309 | 3       |
 | MIC416 | 3       |
 | MIC417 | 3       |
-| MIC317 | 3       |
 | MIC418 | 3       |
 
 ---

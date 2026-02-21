@@ -39,11 +39,11 @@ MIC_REQUIRED_CATEGORIES: dict[str, set[str]] = {
         "BIO202", "BIO202L", "MIC101", "BBT230", "BUS172", "MIC203",
     },
     "Major Core": {
-        "MIC202", "MIC206", "MIC307", "MIC314", "MIC201",
+        "MIC202", "MIC206", "MIC307", "MIC314",
         "MIC315", "MIC315L", "MIC316", "MIC316L", "MIC317", "MIC317L",
-        "MIC401", "MIC412", "MIC416", "MIC413", "MIC413L",
+        "MIC401", "MIC412", "MIC413", "MIC413L",
         "MIC414", "MIC414L", "MIC415", "MIC415L", "MIC498",
-    },  # MIC309 removed — it is a prereq for MIC203, not a standalone requirement
+    },  # MIC309: prereq for MIC203 not standalone; MIC201/MIC416: elective only, not required core
 }
 
 # NSU passing grades, best to worst (for retake: count best passing attempt once)
@@ -232,7 +232,7 @@ def load_transcript(path: Path) -> list[dict]:
             return rows
         keys = {k.strip().lower().replace(" ", "_"): k for k in reader.fieldnames}
         for row in reader:
-            course_code = (row.get(keys.get("course_code", "Course_Code")) or "").strip()
+            course_code = normalize_course_code((row.get(keys.get("course_code", "Course_Code")) or "").strip())
             credits = parse_credits(row.get(keys.get("credits", "Credits")) or "0")
             grade = normalize_grade(row.get(keys.get("grade", "Grade")) or "")
             semester = (row.get(keys.get("semester", "Semester")) or "").strip()
@@ -290,6 +290,8 @@ def reason_not_counted(
     allowed_codes: Optional[Set[str]] = None,
     program_credits: Optional[dict[str, dict[str, float]]] = None,
     program_key: Optional[str] = None,
+    core_excluded: Optional[Set[str]] = None,
+    unselected_electives: Optional[Set[str]] = None,
 ) -> str:
     """Return a specific reason why this course contributes 0 credits."""
     if not attempts:
@@ -297,6 +299,10 @@ def reason_not_counted(
     normalized = normalize_course_code(course_code) if course_code else ""
     if allowed_codes is not None and program_name and course_code:
         if normalized not in allowed_codes:
+            if core_excluded and normalized in core_excluded:
+                return "choice slot filled by another course"
+            if unselected_electives and normalized in unselected_electives:
+                return "elective not selected"
             return f"not in {program_name} curriculum"
     passing = [a for a in attempts if is_passing(a["grade"])]
     if passing:
@@ -383,6 +389,8 @@ def print_report(
     major_electives: Optional[list[str]] = None,
     open_elective: str = "",
     free_electives: Optional[list[str]] = None,
+    core_excluded: Optional[Set[str]] = None,
+    unselected_electives: Optional[Set[str]] = None,
 ) -> None:
     """Print one organized report: header, total, and full per-course breakdown."""
     major_set = set(normalize_course_code(c) for c in (major_electives or []))
@@ -443,6 +451,8 @@ def print_report(
                 allowed_codes=allowed_codes,
                 program_credits=program_credits,
                 program_key=program_key,
+                core_excluded=core_excluded,
+                unselected_electives=unselected_electives,
             )
             status = reason[:col_status] if len(reason) <= col_status else reason[: col_status - 3] + "..."
             print("  | {:<{}} | {:^{}} | {:<{}} | {:<{}} |".format(code, col_code, "—", col_cr, grade, col_grade, status, col_status))
@@ -833,6 +843,7 @@ def main() -> int:
     # --- MIC: Core Choice Selection (Humanities / Social Sciences / Science) ---
     # Must run BEFORE elective selection and credit tally so excluded choices
     # are stripped from allowed_codes first.
+    core_excluded: Set[str] = set()
     if program_key == "MIC":
         core_excluded = select_mic_core_choices(rows)
         alias_exclusions = resolve_mic_aliases(rows)
@@ -841,12 +852,22 @@ def main() -> int:
             for excl, kept in alias_exclusions.items():
                 print(f"    {excl} excluded — {kept} already satisfies this slot (better/equal grade).")
             print()
+        core_excluded = core_excluded | set(alias_exclusions.keys())
         if allowed_codes is not None:
-            allowed_codes = allowed_codes - core_excluded - set(alias_exclusions.keys())
+            allowed_codes = allowed_codes - core_excluded
+
+    # Track all elective-eligible course codes BEFORE selection so unselected ones
+    # can be labelled accurately in the report instead of "not in curriculum".
+    all_elective_candidates: Set[str] = set()
+    if program_key == "CSE":
+        all_elective_candidates = {c for trail in CSE_TRAILS.values() for c in trail}
+    elif program_key == "MIC":
+        all_elective_candidates = set(MIC_ELECTIVES)
 
     # --- Elective Selection ---
     major_electives: list[str] = []
     open_elective: str = ""
+    free_electives: list[str] = []
     if program_key in ("CSE", "MIC"):
         major_electives, open_elective, free_electives = select_electives(program_key, rows, allowed_codes=allowed_codes)
         print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives)
@@ -854,6 +875,10 @@ def main() -> int:
         if allowed_codes is not None:
             all_selected = set(major_electives) | set(free_electives) | ({open_elective} if open_elective else set())
             allowed_codes = allowed_codes | all_selected
+
+    # Elective candidates the student passed but were not selected — label them clearly
+    all_selected_electives = set(major_electives) | set(free_electives) | ({open_elective} if open_elective else set())
+    unselected_electives = all_elective_candidates - all_selected_electives
 
     total, per_course, by_course = compute_total_valid_credits(
         rows,
@@ -875,6 +900,8 @@ def main() -> int:
         major_electives=major_electives,
         open_elective=open_elective,
         free_electives=free_electives,
+        core_excluded=core_excluded,
+        unselected_electives=unselected_electives,
     )
 
     return 0
