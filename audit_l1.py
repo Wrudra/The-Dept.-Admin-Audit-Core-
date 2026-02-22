@@ -12,6 +12,109 @@ import sys
 from pathlib import Path
 from typing import Optional, Set
 
+# ── NSU Offered Course Catalog ──────────────────────────────────────────────
+# Only courses in this set are eligible as open/free electives.
+# Source: NSU Offered Course List (Spring 2026), scraped from the RDS portal.
+# Cross-listed courses (e.g. CSE311/ETE335) are included under each code.
+NSU_CATALOG: Set[str] = {
+    "ACT201","ACT202","ACT310","ACT320","ACT360","ACT370","ACT380","ACT410","ACT430","ACT460",
+    "AMCS501","AMCS504","AMCS506","AMCS507","AMCS510/MAT483","ANT101","ARC111","ARC112","ARC121","ARC122",
+    "ARC123","ARC131","ARC133","ARC200","ARC213","ARC214","ARC215","ARC241","ARC242","ARC251",
+    "ARC261","ARC262","ARC263","ARC264","ARC271","ARC272","ARC273","ARC281","ARC282","ARC283",
+    "ARC310","ARC316","ARC317","ARC318","ARC324","ARC334","ARC343","ARC344","ARC348","ARC384",
+    "ARC410","ARC418","ARC419","ARC437","ARC445","ARC453","ARC454","ARC456","ARC474","ARC492",
+    "ARC500","ARC519","ARC535","ARC576","ARC596","ARC598","BBT203","BBT221","BBT230","BBT312",
+    "BBT312L","BBT314","BBT314L","BBT315","BBT316","BBT316L","BBT317","BBT318","BBT335","BBT413",
+    "BBT413L","BBT415","BBT415L","BBT416/MIC311","BBT417","BBT418","BBT419","BBT421","BBT423","BBT424",
+    "BBT425","BBT427","BBT601","BBT608/BBT609","BBT615/BBT616","BBT623","BBT631","BBT638/BBT639","BBT645","BBT671",
+    "BBT685","BBT695","BBT792","BEN205","BIO103","BIO103L","BIO201","BIO201L","BIO202","BIO202L",
+    "BSC201","BUS112","BUS135","BUS172","BUS173","BUS251","BUS498","BUS499","BUS500/EMB500","BUS501",
+    "BUS505","BUS511","BUS516","BUS518","BUS520","BUS525","BUS530","BUS535","BUS601","BUS620",
+    "BUS635","BUS650","BUS685","BUS690","BUS698","BUS699","BUS700","CE6101","CE6303","CE6603",
+    "CEE100","CEE209","CEE210","CEE211","CEE212","CEE213","CEE214","CEE250","CEE260","CEE310",
+    "CEE330","CEE331","CEE335","CEE335L","CEE340","CEE350","CEE360","CEE370","CEE373","CEE415",
+    "CEE430","CEE431","CEE460","CEE470","CEE474","CHE101","CHE101L","CHE201","CHE202","CHE202L",
+    "CHE203","CHE203L","CHN101","CHN201","CSE101","CSE115","CSE115L","CSE145","CSE173","CSE215",
+    "CSE215L","CSE225","CSE225L","CSE226","CSE231","CSE231L","CSE273","CSE311/ETE335","CSE311L/ETE335L","CSE323",
+    "CSE325/CSE425","CSE327","CSE331/EEE332/EEE453/ETE332","CSE331L/EEE332L/EEE453L/ETE332L","CSE332/EEE336","CSE332L/EEE336L","CSE338/CSE438","CSE338/CSE438/EEE331/ETE331","CSE338L/CSE438L","CSE338L/CSE438L/EEE331L/ETE331L",
+    "CSE373","CSE411","CSE413L/EEE413L/ETE419L","CSE435/EEE411/ETE412","CSE435L/EEE411L/ETE412L","CSE440/EEE333/ETE333","CSE445","CSE465","CSE468","CSE482/ETE334",
+    "CSE482L/ETE334L","CSE495A","CSE495B","CSE532/EEE560","CSE534","CSE562","CSE583","CSE597/EEE597/ETE597","DEV503","DEV564",
+    "DEV565","DEV577","DEV595","DEV596","ECO101","ECO103","ECO104","ECO134","ECO135","ECO172",
+    "ECO173","ECO201","ECO204","ECO245","ECO301","ECO304","ECO309","ECO317","ECO348","ECO372",
+    "ECO406","ECO415","ECO486","ECO490","ECO492","ECO496","ECO503","ECO504","ECO514","ECO614",
+    "ECO695","ECO699","EEE111/ETE111","EEE111L/ETE111L","EEE141/ETE141","EEE141L/ETE141L","EEE211/ETE211","EEE211L/ETE211L","EEE221/ETE221","EEE221L/ETE221L",
+    "EEE241/ETE241","EEE241L/ETE241L","EEE311/ETE311","EEE311L/ETE311L","EEE312/ETE312","EEE312L/ETE312L","EEE313/EEE410/ETE411/ETE443","EEE321/ETE321","EEE321L","EEE321L/ETE321L",
+    "EEE342/ETE418","EEE342L/ETE418L","EEE361/ETE361","EEE362","EEE362L","EEE363","EEE363L","EEE452","EEE461","EEE462",
+    "EEE464","EEE465","EEE528","EEE542","EEE551","EMB500","EMB501","EMB502","EMB510","EMB520",
+    "EMB601","EMB602","EMB620","EMB650","EMB660","EMB670","EMB690","EMPG500","EMPG515","EMPG520",
+    "EMPG530","EMPG565","EMPG570","EMPH601","EMPH605","EMPH609","EMPH611","EMPH631","EMPH642","EMPH644",
+    "EMPH653","EMPH663","EMPH671","EMPH672","EMPH681","EMPH704","EMPH706","EMPH711","EMPH712","EMPH713",
+    "EMPH742","EMPH745","EMPH771","EMPH781","EMPH805","EMPH806","EMPH842","ENG102","ENG103","ENG105",
+    "ENG111","ENG115","ENG210","ENG216","ENG220","ENG230","ENG260","ENG302","ENG307","ENG312",
+    "ENG334/ENG461","ENG337/ENG466","ENG341","ENG346","ENG351","ENG361","ENG377","ENG381","ENG401","ENG417",
+    "ENG431","ENG441","ENG446","ENG481","ENG501","ENG511","ENG513","ENG519","ENG520","ENG522",
+    "ENG524","ENG553","ENG555","ENG558","ENG560","ENG570","ENG572","ENG574","ENG576","ENG580",
+    "ENG581","ENG602","ENG605","ENG606","ENG611","ENG613","ENG618","ENG631","ENG632","ENG636",
+    "ENG637","ENV102","ENV107","ENV107L","ENV172","ENV203/GEO205","ENV204","ENV205","ENV206","ENV207",
+    "ENV208","ENV209","ENV214","ENV215","ENV260","ENV303","ENV307","ENV311","ENV316","ENV318",
+    "ENV373","ENV402","ENV405","ENV414","ENV419","ENV430","ENV432","ENV455","ENV498","ENV499",
+    "ENV501","ENV502","ENV602","ENV624","ENV627","ENV635","ENV652","ENV685","ENV697","ETH201",
+    "FIN254","FIN410","FIN433","FIN435","FIN440","FIN444","FIN455","FIN464","FIN480","FIN635",
+    "FIN637","FIN639","FIN642","FIN643","FIN644","FIN645","HAS501","HAS503","HAS505","HAS506",
+    "HAS508","HAS515","HIS101","HIS102","HIS103","HIS205","HRM340","HRM360","HRM370","HRM380",
+    "HRM450","HRM470","HRM602","HRM604","HRM610","HRM645","HRM650","HRM660","INB350","INB372",
+    "INB400","INB410","INB415","INB480","INB490","LAW101","LAW107","LAW200","LAW201","LAW211",
+    "LAW213","LAW301","LAW303","LAW305","LAW306","LAW313","LAW314","LAW405","LAW415","LAW416/LLB208",
+    "LAW417","LAW418","LAW419","LAW420","LAW421","LAW423","LAW424","LAW426","LAW427/LLB206","LBA104",
+    "LLB101","LLB102","LLB103","LLB104","LLB201","LLB202","LLB203","LLB205","LLM501","LLM506",
+    "LLM509","LLM511","LLM513","LLM514","LLM515","LLM516","LLM517","LLM520","LLM523","LLM525",
+    "LLM528","MAT116","MAT120","MAT125","MAT130","MAT250","MAT350","MAT361","MAT480","MCJ101",
+    "MCJ102","MCJ103","MCJ104","MCJ104L","MCJ201","MCJ202","MCJ203","MCJ203L","MCJ204","MCJ205",
+    "MCJ302","MCJ303","MCJ305","MCJ305L","MCJ401","MCJ401L","MCJ403","MCJ403L","MGT212","MGT314",
+    "MGT321","MGT330","MGT351","MGT360","MGT368","MGT460","MGT470/MIS410","MGT489","MGT490","MGT610",
+    "MGT656","MGT680/SCM601","MIC201","MIC202","MIC203","MIC206","MIC207","MIC307","MIC309","MIC314",
+    "MIC315","MIC315L","MIC316","MIC316L","MIC317","MIC317L","MIC318","MIC401","MIC404","MIC412",
+    "MIC413","MIC413L","MIC414","MIC414L","MIC415","MIC415L","MIS107","MIS207","MIS210","MIS310",
+    "MIS320","MIS470","MIS653","MIS654","MIS661","MKT202","MKT330","MKT337","MKT344","MKT355",
+    "MKT382","MKT412","MKT417","MKT450","MKT460","MKT465","MKT470","MKT475","MKT621","MKT623",
+    "MKT624","MKT625","MKT627","MKT628","MKT630","MKT633","MKT634","MKT635","MKT636","PAD201",
+    "PBH101","PBH101L","PBH602","PBH605","PBH609","PBH611","PBH631","PBH642","PBH644","PBH653",
+    "PBH663","PBH671","PBH672","PBH681","PBH701","PBH704","PBH706","PBH711","PBH712","PBH713",
+    "PBH714","PBH742","PBH745","PBH761","PBH771","PBH781","PBH782","PBH805","PBH806","PBH842",
+    # Capstone / internship courses (CSE)
+    "CSE299","CSE499A","CSE499B","CSE498R",
+    # School Core — EEE154 (1-credit theory)
+    "EEE154",
+    # MIC alias codes (SHLS Core equivalent pairs)
+    "MIC101","MIC101L","MIC110","MIC110L",
+    # MIC electives not previously listed
+    "MIC416","MIC417","MIC418","MIC498",
+    # Minor in Math additional courses
+    "MAT370","MAT485",
+    # Minor in Physics courses
+    "PHY230","PHY240","PHY250","PHY260",
+    "PHI101","PHI104","PHI401","PHR110","PHR112","PHR113","PHR114","PHR114L","PHR120","PHR120L",
+    "PHR121","PHR122","PHR122L","PHR123","PHR124","PHR124L","PHR210","PHR210L","PHR211","PHR211L",
+    "PHR212","PHR212L","PHR213","PHR214","PHR215","PHR215L","PHR221","PHR221L","PHR222","PHR222L",
+    "PHR223","PHR223L","PHR224","PHR224L","PHR225","PHR226","PHR227","PHR300","PHR310","PHR310L",
+    "PHR312","PHR312L","PHR313","PHR313L","PHR314","PHR314L","PHR322","PHR322L","PHR324","PHR325",
+    "PHR326","PHR327","PHR400","PHR410","PHR411","PHR411L","PHR415","PHR418","PHR424","PHR425",
+    "PHR426","PHR427","PHR428","PHR431","PHR500","PHR5001","PHR5002","PHR5003","PHR5011","PHR5012",
+    "PHR5013","PHR5015","PHR5021","PHR5023","PHR510","PHR5101","PHR5106","PHR5107","PHR5108","PHR511",
+    "PHR5110","PHR5111","PHR5112","PHR5113","PHR512","PHR513","PHR514","PHR515","PHR516","PHR520",
+    "PHR5201","PHR5208","PHR5209","PHR521","PHR522","PHY107","PHY107L","PHY108","PHY108L","POL101",
+    "POL104","POL202","PPG555","PPG560","PSY101","PSY101L","SCM310","SCM320","SCM450","SCM603",
+    "SCM605","SCM607","SCM608","SOC101","SOC103","SOC201","TNM201","WMS201",
+}
+
+# Expanded catalog: splits cross-listed entries ("CSE332L/EEE336L" -> "CSE332L", "EEE336L")
+# so that any individual code lookup works correctly regardless of how the catalog stores it.
+NSU_CATALOG_EXPANDED: Set[str] = {
+    part.strip()
+    for entry in NSU_CATALOG
+    for part in entry.split("/")
+}
+
 # CSE Major Elective Trails (from program.md)
 CSE_TRAILS: dict[str, list[str]] = {
     "Algorithms and Computation": ["CSE257", "CSE417", "CSE326", "CSE426", "CSE273", "CSE473"],
@@ -312,6 +415,8 @@ def reason_not_counted(
                 return "choice slot filled by another course"
             if unselected_electives and normalized in unselected_electives:
                 return "elective not selected"
+            if normalized not in NSU_CATALOG_EXPANDED:
+                return "Not Provided by NSU"
             return f"not in {program_name} curriculum"
     passing = [a for a in attempts if is_passing(a["grade"])]
     if passing:
@@ -559,6 +664,7 @@ def select_electives_cse(
     open_preview = sorted([
         c for c in taken
         if normalize_course_code(c) not in _waived
+        and normalize_course_code(c) in NSU_CATALOG_EXPANDED  # must be a real NSU course
         and (c in all_trail_codes or c not in (allowed_codes or set()))
     ])
     if open_preview:
@@ -608,6 +714,7 @@ def select_electives_cse(
     open_pool = sorted([
         c for c in taken
         if normalize_course_code(c) not in _waived
+        and normalize_course_code(c) in NSU_CATALOG_EXPANDED  # must be a real NSU course
         and c not in set(major_electives)
         and (c in all_trail_codes or c not in (allowed_codes or set()))
     ])
@@ -806,7 +913,11 @@ def select_electives_mic(rows: list[dict]) -> tuple[list[str], str]:
     _major_core_required = MIC_REQUIRED_CATEGORIES.get("Major Core", set())
     major_pool = [c for c in MIC_ELECTIVES if c in taken and c not in _major_core_required]
     all_non_major = sorted(c for c in taken if c not in set(major_pool))
-    free_available = [c for c in all_non_major if _mic_course_category(c) is None]
+    free_available = [
+        c for c in all_non_major
+        if _mic_course_category(c) is None
+        and normalize_course_code(c) in NSU_CATALOG_EXPANDED  # must be a real NSU course
+    ]
 
     print("\n  Available major elective courses from your transcript:\n")
     if major_pool:
