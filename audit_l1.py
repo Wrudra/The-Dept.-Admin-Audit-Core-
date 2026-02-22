@@ -22,28 +22,33 @@ CSE_TRAILS: dict[str, list[str]] = {
 }
 
 # MIC Elective courses (from program.md)
-MIC_ELECTIVES: list[str] = ["MIC201", "MIC318", "MIC404", "MIC311", "MIC309", "MIC416", "MIC417", "MIC317", "MIC418"]
+MIC_ELECTIVES: list[str] = ["MIC201", "MIC318", "MIC404", "MIC311", "MIC309", "MIC416", "MIC417", "MIC418"]
 
 # MIC required course categories — used to flag courses already serving a requirement
 MIC_REQUIRED_CATEGORIES: dict[str, set[str]] = {
     "University Core": {
-        "ENG102", "ENG103", "ENG105", "ENG111", "BEN205",
+        "ENG102", "ENG103", "ENG105",
+        "BEN205", "ENG111",               # BEN205 / ENG111 choice slot
         "HIS101", "HIS103", "PHI101",
         "POL101", "POL104", "ECO101", "ECO104", "SOC101", "ANT101",
-        "MAT107", "MAT116", "BUS172",
+        "MIS107", "MAT116", "BUS172",
         "BIO103", "BIO103L", "PHY107", "PHY107L",
     },
     "SHLS Core": {
+        "BBT230",
         "CHE101", "CHE101L", "CHE201", "CHE202", "CHE202L",
-        "BIO201", "MIC110", "BIO103L", "BIO201L", "MIC101L",
-        "BIO202", "BIO202L", "MIC101", "BBT230", "BUS172", "MIC203",
+        "BIO201", "MIC110",               # theory equivalents (alias pair)
+        "BIO201L", "MIC110L",             # lab equivalents (alias pair)
+        "BIO202", "MIC101",               # theory equivalents (alias pair)
+        "BIO202L", "MIC101L",             # lab equivalents (alias pair)
+        "MIC203",
     },
     "Major Core": {
-        "MIC202", "MIC206", "MIC307", "MIC314",
+        "MIC202", "MIC206", "MIC207", "MIC307", "MIC314",
         "MIC315", "MIC315L", "MIC316", "MIC316L", "MIC317", "MIC317L",
         "MIC401", "MIC412", "MIC413", "MIC413L",
         "MIC414", "MIC414L", "MIC415", "MIC415L", "MIC498",
-    },  # MIC309: prereq for MIC203 not standalone; MIC201/MIC416: elective only, not required core
+    },
 }
 
 # NSU passing grades, best to worst (for retake: count best passing attempt once)
@@ -79,14 +84,15 @@ PROGRAM_REQUIRED_CREDITS = {"CSE": 130, "MIC": 120}
 # MIC SHLS Core alias pairs: these course codes mean the SAME thing.
 # Taking either one satisfies that requirement slot — only one should be counted.
 MIC_ALIAS_PAIRS: list[tuple[str, str]] = [
-    ("BIO201",  "MIC110"),   # Cell Biology / Intro Microbiology theory
-    ("BIO201L", "MIC101L"),  # Cell Biology Lab / Intro Microbiology Lab
-    ("BIO202",  "MIC101"),   # Molecular Biology theory equivalent
-    ("BIO202L", "MIC101L"),  # Molecular Biology Lab (MIC101L appears for both lab slots)
+    ("BIO201",  "MIC110"),    # Intro to Biochem & Biotech theory equivalents
+    ("BIO201L", "MIC110L"),   # Intro to Biochem & Biotech lab equivalents
+    ("BIO202",  "MIC101"),    # Basic Microbiology theory equivalents
+    ("BIO202L", "MIC101L"),   # Basic Microbiology lab equivalents
 ]
 
 # MIC University Core choice groups — student may have taken more than one;
 # admin must select which single course (or course pair for Science) counts.
+MIC_LANGUAGE_CHOICES: list[str] = ["BEN205", "ENG111"]  # one of these fills the 4th language slot
 MIC_HUMANITIES_CHOICES: list[str] = ["HIS101", "HIS103", "PHI101"]
 MIC_SOCIAL_CHOICES: list[str]     = ["POL101", "POL104", "ECO101", "ECO104", "SOC101", "ANT101"]
 # Science is a paired choice: theory + lab together
@@ -292,11 +298,14 @@ def reason_not_counted(
     program_key: Optional[str] = None,
     core_excluded: Optional[Set[str]] = None,
     unselected_electives: Optional[Set[str]] = None,
+    waived_courses: Optional[Set[str]] = None,
 ) -> str:
     """Return a specific reason why this course contributes 0 credits."""
     if not attempts:
         return "no attempts on transcript"
     normalized = normalize_course_code(course_code) if course_code else ""
+    if waived_courses and normalized in waived_courses:
+        return "waived — excluded from requirements"
     if allowed_codes is not None and program_name and course_code:
         if normalized not in allowed_codes:
             if core_excluded and normalized in core_excluded:
@@ -391,6 +400,8 @@ def print_report(
     free_electives: Optional[list[str]] = None,
     core_excluded: Optional[Set[str]] = None,
     unselected_electives: Optional[Set[str]] = None,
+    waiver_applied: bool = False,
+    waived_courses: Optional[Set[str]] = None,
 ) -> None:
     """Print one organized report: header, total, and full per-course breakdown."""
     major_set = set(normalize_course_code(c) for c in (major_electives or []))
@@ -402,6 +413,9 @@ def print_report(
     print("=" * width)
     print(f"  Transcript:   {transcript_path.name}")
     print(f"  Program:      {program_name}")
+    if waiver_applied:
+        orig = PROGRAM_REQUIRED_CREDITS.get(program_key or program_name.upper(), "?")
+        print(f"  Waiver:       ENG102 waived — required credits reduced from {orig} to {required_credits}.")
     print("-" * width)
     if required_credits is not None:
         print(f"  TOTAL VALID CREDITS:  {total:.1f} / {required_credits} (required for {program_name})")
@@ -453,6 +467,7 @@ def print_report(
                 program_key=program_key,
                 core_excluded=core_excluded,
                 unselected_electives=unselected_electives,
+                waived_courses=waived_courses,
             )
             status = reason[:col_status] if len(reason) <= col_status else reason[: col_status - 3] + "..."
             print("  | {:<{}} | {:^{}} | {:<{}} | {:<{}} |".format(code, col_code, "—", col_cr, grade, col_grade, status, col_status))
@@ -506,13 +521,17 @@ def _get_taken_courses(rows: list[dict]) -> list[str]:
     return [code for code, attempts in seen.items() if has_passing_attempt(attempts)]
 
 
-def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = None) -> tuple[list[str], str]:
+def select_electives_cse(
+    rows: list[dict],
+    allowed_codes: Optional[Set[str]] = None,
+    waived_courses: Optional[Set[str]] = None,
+) -> tuple[list[str], str, list[str]]:
     """
     CSE elective selection driven by transcript.
-    Returns (major_electives, open_elective).
-    major_electives: up to 3 courses (2 from primary trail, 1 from secondary).
-    open_elective: 1 course from trail courses or outside curriculum.
+    Returns (major_electives, open_elective, []).
+    waived_courses: codes that were waived — excluded from open elective pool.
     """
+    _waived = {normalize_course_code(c) for c in (waived_courses or set())}
     taken = set(_get_taken_courses(rows))
 
     # Build trail -> taken courses mapping
@@ -534,11 +553,13 @@ def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = N
         print(f"  [{trail_name}]")
         for c in codes:
             print(f"    {_course_display(c, rows)}")
-    # Open elective pool preview — trail courses + courses outside CSE curriculum
+    # Open elective pool preview — trail courses + courses outside CSE curriculum.
+    # Waived courses are excluded: they have no standing in graduation requirements.
     all_trail_codes = {c for trail in CSE_TRAILS.values() for c in trail}
     open_preview = sorted([
         c for c in taken
-        if c in all_trail_codes or c not in (allowed_codes or set())
+        if normalize_course_code(c) not in _waived
+        and (c in all_trail_codes or c not in (allowed_codes or set()))
     ])
     if open_preview:
         print(f"\n  [Open Elective candidates]  (trail courses + outside curriculum)")
@@ -586,7 +607,8 @@ def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = N
     # --- Open elective: remaining trail courses (not selected) + courses outside CSE curriculum ---
     open_pool = sorted([
         c for c in taken
-        if c not in set(major_electives)
+        if normalize_course_code(c) not in _waived
+        and c not in set(major_electives)
         and (c in all_trail_codes or c not in (allowed_codes or set()))
     ])
     open_elective = ""
@@ -599,11 +621,47 @@ def select_electives_cse(rows: list[dict], allowed_codes: Optional[Set[str]] = N
     return major_electives, open_elective, []
 
 
+# CSE GED/University Core choice groups — student fills each slot with exactly ONE course
+CSE_GED_CHOICE_GROUPS: list[list[str]] = [
+    ["POL101", "POL104"],
+    ["ECO101", "ECO104"],
+    ["SOC101", "ENV203", "GEO205", "ANT101"],
+]
+
+
+def resolve_cse_choice_groups(rows: list[dict]) -> set[str]:
+    """
+    Auto-resolve CSE GED choice groups. Each group is a 'pick one' slot.
+    If the student passed more than one course from the same group, keep the
+    highest grade and silently exclude the rest. Ties are broken arbitrarily
+    (max() with stable sort = first encountered in the group list wins).
+
+    Returns: set of course codes to exclude from allowed_codes / credit tally.
+    """
+    by_course: dict[str, list[dict]] = {}
+    for r in rows:
+        by_course.setdefault(normalize_course_code(r["course_code"]), []).append(r)
+
+    excluded: set[str] = set()
+    for group in CSE_GED_CHOICE_GROUPS:
+        passed = [c for c in group if c in by_course and has_passing_attempt(by_course[c])]
+        if len(passed) > 1:
+            best = max(passed, key=lambda c: GRADE_RANK.get(get_display_grade(by_course[c]), 0))
+            for c in passed:
+                if c != best:
+                    excluded.add(c)
+    return excluded
+
+
 def resolve_mic_aliases(rows: list[dict]) -> dict[str, str]:
     """
-    For each MIC alias pair, if the transcript contains BOTH codes, return a mapping
-    of the code to EXCLUDE -> the canonical code to KEEP (whichever was passed first /
-    has the better grade).  If only one of the pair is present, no exclusion needed.
+    For each MIC alias pair (e.g. BIO201 / MIC110), determine which code to exclude.
+
+    Cases handled:
+      - Both passed: exclude the lower-grade one (ties → keep A, exclude B).
+      - One passed, other failed/withdrew: exclude the failed one so its F or W
+        does not pollute the credit tally or CGPA.
+      - Only one present: no exclusion needed.
 
     Returns: dict of  excluded_code -> kept_code  (may be empty).
     """
@@ -614,16 +672,25 @@ def resolve_mic_aliases(rows: list[dict]) -> dict[str, str]:
     exclusions: dict[str, str] = {}
     for code_a, code_b in MIC_ALIAS_PAIRS:
         a, b = normalize_course_code(code_a), normalize_course_code(code_b)
-        has_a = a in by_course and has_passing_attempt(by_course[a])
-        has_b = b in by_course and has_passing_attempt(by_course[b])
-        if has_a and has_b:
-            # Both passed — keep the one with the better grade; exclude the other
+        present_a = a in by_course
+        present_b = b in by_course
+        pass_a = present_a and has_passing_attempt(by_course[a])
+        pass_b = present_b and has_passing_attempt(by_course[b])
+
+        if pass_a and pass_b:
+            # Both passed — keep the better grade; ties favour A (default)
             grade_a = GRADE_RANK.get(get_display_grade(by_course[a]), 0)
             grade_b = GRADE_RANK.get(get_display_grade(by_course[b]), 0)
             if grade_b > grade_a:
-                exclusions[a] = b  # exclude A, keep B
+                exclusions[a] = b
             else:
-                exclusions[b] = a  # exclude B, keep A (default on tie)
+                exclusions[b] = a
+        elif pass_a and present_b and not pass_b:
+            # A passed, B only has F/W/I — exclude B so failures don't count
+            exclusions[b] = a
+        elif pass_b and present_a and not pass_a:
+            # B passed, A only has F/W/I — exclude A
+            exclusions[a] = b
     return exclusions
 
 
@@ -648,6 +715,18 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
     print("  MIC UNIVERSITY CORE — REQUIRED CHOICE SLOTS")
     print("  Only ONE course per group counts toward credits.")
     print("=" * 50)
+
+    # --- Language 4th slot: BEN205 or ENG111 (choose one) ---
+    lang_passed = passed_from(MIC_LANGUAGE_CHOICES)
+    if len(lang_passed) > 1:
+        print("\n  LANGUAGE (4th slot) — student passed both BEN205 and ENG111 (pick one to count):")
+        chosen = _prompt_pick("", lang_passed, display=[_course_display(c, rows) for c in lang_passed])
+        excluded.update(c for c in lang_passed if c != chosen)
+        print(f"  ✓ Language slot: {chosen} counted.")
+    elif len(lang_passed) == 1:
+        print(f"\n  Language (4th slot): {lang_passed[0]} — only option, auto-selected.")
+    else:
+        print("\n  Language (4th slot): no passing course found (BEN205 or ENG111 required).")
 
     # --- Humanities (pick 1 of HIS101 / HIS103 / PHI101) ---
     hum_passed = passed_from(MIC_HUMANITIES_CHOICES)
@@ -787,10 +866,15 @@ def select_electives_mic(rows: list[dict]) -> tuple[list[str], str]:
     return major_electives, open_elective, free_extras
 
 
-def select_electives(program_key: str, rows: list[dict], allowed_codes: Optional[Set[str]] = None) -> tuple[list[str], str]:
-    """Dispatch elective selection by program. Returns (major_electives, open_elective)."""
+def select_electives(
+    program_key: str,
+    rows: list[dict],
+    allowed_codes: Optional[Set[str]] = None,
+    waived_courses: Optional[Set[str]] = None,
+) -> tuple[list[str], str, list[str]]:
+    """Dispatch elective selection by program. Returns (major_electives, open_elective, free_electives)."""
     if program_key == "CSE":
-        return select_electives_cse(rows, allowed_codes=allowed_codes)
+        return select_electives_cse(rows, allowed_codes=allowed_codes, waived_courses=waived_courses)
     elif program_key == "MIC":
         return select_electives_mic(rows)
     return [], "", []
@@ -829,6 +913,26 @@ def main() -> int:
     allowed_codes = program_codes.get(program_key) if program_key in ("CSE", "MIC") else None
     credits_by_program = program_credits if program_key in ("CSE", "MIC") else None
 
+    # --- Waiver Check ---
+    required_credits = PROGRAM_REQUIRED_CREDITS.get(program_key)
+    waiver_applied = False
+    waived_courses: Set[str] = set()
+    print("\n" + "=" * 50)
+    print("  WAIVER CHECK")
+    print("=" * 50)
+    waiver_raw = input("  Is ENG102 waived for this student? (y/n): ").strip().lower()
+    if waiver_raw == "y":
+        if required_credits is not None:
+            required_credits -= 3
+        if allowed_codes is not None:
+            allowed_codes = allowed_codes - {"ENG102"}
+        waived_courses.add("ENG102")
+        waiver_applied = True
+        print(f"  ✓ ENG102 waiver applied. Required credits: {required_credits}.")
+    else:
+        print(f"  No waiver applied. Required credits: {required_credits}.")
+    print()
+
     # Gate elective courses behind selection — remove from base allowed set so unselected ones don't count.
     # CRITICAL: only remove courses that are PURELY electives — i.e. not also required Major Core.
     # MIC317, MIC201, MIC416 etc. appear in both MIC_ELECTIVES and Major Core; they must stay in
@@ -856,6 +960,18 @@ def main() -> int:
         if allowed_codes is not None:
             allowed_codes = allowed_codes - core_excluded
 
+    # --- CSE: Auto-resolve GED choice groups (POL/ECO/SOC slots) ---
+    if program_key == "CSE":
+        cse_choice_excluded = resolve_cse_choice_groups(rows)
+        if cse_choice_excluded:
+            print("\n  CSE GED choice resolution (only one course per slot counts):")
+            for c in sorted(cse_choice_excluded):
+                print(f"    {c} excluded — a higher-grade course fills the same required slot.")
+            print()
+        core_excluded = core_excluded | cse_choice_excluded
+        if allowed_codes is not None:
+            allowed_codes = allowed_codes - cse_choice_excluded
+
     # Track all elective-eligible course codes BEFORE selection so unselected ones
     # can be labelled accurately in the report instead of "not in curriculum".
     all_elective_candidates: Set[str] = set()
@@ -869,7 +985,9 @@ def main() -> int:
     open_elective: str = ""
     free_electives: list[str] = []
     if program_key in ("CSE", "MIC"):
-        major_electives, open_elective, free_electives = select_electives(program_key, rows, allowed_codes=allowed_codes)
+        major_electives, open_elective, free_electives = select_electives(
+            program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses
+        )
         print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives)
         # Merge selected electives into allowed curriculum so they count toward the tally
         if allowed_codes is not None:
@@ -886,14 +1004,13 @@ def main() -> int:
         program_credits=credits_by_program,
         program_key=program_key if program_key in ("CSE", "MIC") else None,
     )
-    required = get_required_credits(args.program_name)
     print_report(
         args.transcript,
         args.program_name,
         total,
         per_course,
         by_course,
-        required,
+        required_credits,
         allowed_codes=allowed_codes,
         program_credits=credits_by_program,
         program_key=program_key if program_key in ("CSE", "MIC") else None,
@@ -902,6 +1019,8 @@ def main() -> int:
         free_electives=free_electives,
         core_excluded=core_excluded,
         unselected_electives=unselected_electives,
+        waiver_applied=waiver_applied,
+        waived_courses=waived_courses,
     )
 
     return 0

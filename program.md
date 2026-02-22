@@ -370,14 +370,14 @@ _Choose one_
 
 ### Science (4 Credits — Choose one pair)
 
-| Option | Course      | Credits |
-| ------ | ----------- | ------- |
-| A      | BIO103      | 3       |
-| A      | **BIO103L** | **1**   |
-| B      | PHY107      | 3       |
-| B      | **PHY107L** | **1**   |
+| Course      | Credits | Option | Notes          |
+| ----------- | ------- | ------ | -------------- |
+| BIO103      | 3       | A      |                |
+| **BIO103L** | **1**   | A      | Lab            |
+| PHY107      | 3       | B      | Prereq: MAT120 |
+| **PHY107L** | **1**   | B      | Lab            |
 
-_Choose one pair (A or B). PHY107 has prerequisite MAT120._
+_Choose one pair (A or B) — both theory and lab must be completed._
 
 ---
 
