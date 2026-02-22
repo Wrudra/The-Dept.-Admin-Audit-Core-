@@ -1,4 +1,4 @@
-I'll fetch the grading policy information from North South University's website.# North South University - Grading Policy
+# North South University - Grading Policy
 
 ## Grading Scale
 
@@ -136,9 +136,10 @@ _11 Theory & 1 Lab Course_
 
 _13 Theory & 4 Lab Courses_
 
-| Course       | Credits | Prerequisites    | Notes               |
-| ------------ | ------- | ---------------- | ------------------- |
-| MAT 116      | 0       | None             | Not counted in CGPA |
+| Course       | Credits | Prerequisites    | Notes                        |
+| ------------ | ------- | ---------------- | ---------------------------- |
+| MAT 112      | 3       | None             | Waiverable (see Important Notes) |
+| MAT 116      | 0       | None             | Not counted in CGPA; prereq only |
 | MAT 120      | 3       | MAT 116          |                     |
 | MAT 125      | 3       | MAT 116          |                     |
 | MAT 130      | 3       | MAT 120          |                     |
@@ -263,10 +264,10 @@ _LO = Last Offered (Semester Code)_
 
 ## Internship/Research (1 Credit)
 
-**CSE 498R** - Must pass (choose one):
+**CSE 498R / CSE 498I** — 1 credit **mandatory** (not open elective). Must pass (choose one):
 
-- **Internship**: Minimum 320 hours over 8-12 weeks
-- **Research**: One-on-one with faculty on independent project
+- **Internship (498R)**: Minimum 320 hours over 8-12 weeks
+- **Research (498I)**: One-on-one with faculty on independent project
 
 ---
 
@@ -303,9 +304,17 @@ _Contact DMP for more details_
 ## Important Notes
 
 - **Applies to:** Fall 2018 or later students
-- **Waived Courses:** ENG 102 waiver = 127 total credits (instead of 130)
-- **Minimum CGPA:** 2.0 required for graduation
-- **MAT 116:** Score not counted in CGPA but shown until graduation unless excluded by department
+- **Waiverable courses:** ENG 102 and MAT 112 (3 credits each). If waived, credits count in **Credit Completed** only (not in **Credit Counted** or CGPA). If not waived, the course grade and credits count in **Credit Counted** and in CGPA.
+- **Required credits** (CSE) depend on how many of ENG102 and MAT112 are waived:
+  | ENG102 waived | MAT112 waived | Required (CSE) |
+  | ------------- | ------------- | --------------- |
+  | Yes           | Yes           | 130             |
+  | One only      | One only      | 133             |
+  | No            | No            | 136             |
+- **Credit Counted:** Sum of credits from courses with grades (basis for CGPA). Waived courses are excluded.
+- **Credit Completed:** Credit Counted + 3 per waived course; compared to required credits above.
+- **Minimum CGPA:** 2.0 required for graduation (CGPA is based on Credit Counted only).
+- **MAT 116:** 0 credits for CSE; prereq for MAT120/MAT125 only; not counted in CGPA.
 
 ---
 
@@ -362,11 +371,12 @@ _Choose one_
 
 ### Computer and Math (9 Credits)
 
-| Course | Credits | Prerequisites |
-| ------ | ------- | ------------- |
-| MIS107 | 3       | None          |
-| MAT116 | 3       | None          |
-| BUS172 | 3       | None          |
+| Course | Credits | Prerequisites | Notes     |
+| ------ | ------- | ------------- | --------- |
+| MIS107 | 3       | None          |           |
+| MAT112 | 3       | None          | Waiverable |
+| MAT116 | 3       | None          |           |
+| BUS172 | 3       | None          |           |
 
 ### Science (4 Credits — Choose one pair)
 
@@ -385,7 +395,7 @@ _Choose one pair (A or B) — both theory and lab must be completed._
 
 | Course            | Credits | Prerequisites            | Notes   |
 | ----------------- | ------- | ------------------------ | ------- |
-| BBT230            | 3       | BIO201, BUS172           |         |
+| BBT203            | 3       | BIO201, BUS172           |         |
 | CHE101            | 3       | None                     |         |
 | **CHE101L**       | **1**   | None                     | **Lab** |
 | CHE201            | 3       | CHE101                   |         |
@@ -456,7 +466,14 @@ _Any three courses from NSU curriculum_
 
 ## Important Notes - Microbiology Program
 
-- **Total Credits:** 120 Credits (31 with ENG102) or 28 University Core credits if ENG102 waived
+- **Total credits (required)** depend on waivers for ENG102 and MAT112:
+  | ENG102 waived | MAT112 waived | Required (MIC) |
+  | ------------- | ------------- | --------------- |
+  | Yes           | Yes           | 120             |
+  | One only      | One only      | 123             |
+  | No            | No            | 126             |
+- **Credit Counted:** Credits from courses with grades (basis for CGPA). Waived courses excluded.
+- **Credit Completed:** Credit Counted + 3 per waived course; compared to required credits above.
 - **Minimum CGPA:** 2.0 required for graduation
 - **BEN205 and HIS103** are mandatory for all NSU UG students from Batch 163 onwards
 - **ENG103 and ENG105** are mandatory language courses for all NSU UG students

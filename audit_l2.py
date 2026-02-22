@@ -71,7 +71,7 @@ NSU_CATALOG: Set[str] = {
     "LAW417","LAW418","LAW419","LAW420","LAW421","LAW423","LAW424","LAW426","LAW427/LLB206","LBA104",
     "LLB101","LLB102","LLB103","LLB104","LLB201","LLB202","LLB203","LLB205","LLM501","LLM506",
     "LLM509","LLM511","LLM513","LLM514","LLM515","LLM516","LLM517","LLM520","LLM523","LLM525",
-    "LLM528","MAT116","MAT120","MAT125","MAT130","MAT250","MAT350","MAT361","MAT480","MCJ101",
+    "LLM528","MAT112","MAT116","MAT120","MAT125","MAT130","MAT250","MAT350","MAT361","MAT480","MCJ101",
     "MCJ102","MCJ103","MCJ104","MCJ104L","MCJ201","MCJ202","MCJ203","MCJ203L","MCJ204","MCJ205",
     "MCJ302","MCJ303","MCJ305","MCJ305L","MCJ401","MCJ401L","MCJ403","MCJ403L","MGT212","MGT314",
     "MGT321","MGT330","MGT351","MGT360","MGT368","MGT460","MGT470/MIS410","MGT489","MGT490","MGT610",
@@ -85,7 +85,7 @@ NSU_CATALOG: Set[str] = {
     "PBH663","PBH671","PBH672","PBH681","PBH701","PBH704","PBH706","PBH711","PBH712","PBH713",
     "PBH714","PBH742","PBH745","PBH761","PBH771","PBH781","PBH782","PBH805","PBH806","PBH842",
     # Capstone / internship courses (CSE)
-    "CSE299","CSE499A","CSE499B","CSE498R",
+    "CSE299","CSE499A","CSE499B","CSE498R","CSE498I",
     # School Core — EEE154 (1-credit theory)
     "EEE154",
     # MIC alias codes (SHLS Core equivalent pairs)
@@ -208,7 +208,7 @@ MIC_PREREQS: dict[str, list] = {
     "BIO202L": [frozenset({"BIO103L"})],
     "MIC101L": [frozenset({"BIO103L"})],
     "MIC203":  [frozenset({"BIO103L"}), frozenset({"BIO202", "MIC101"})],
-    "BBT230":  [frozenset({"BIO201", "MIC110"}), frozenset({"BUS172"})],
+    "BBT203":  [frozenset({"BIO201", "MIC110"}), frozenset({"BUS172"})],
     # Major Core
     "MIC202":  [frozenset({"CHE101"}), frozenset({"BIO202", "MIC101"})],
     "MIC307":  [frozenset({"MIC203"}), frozenset({"CHE202"})],
@@ -355,7 +355,7 @@ MIC_REQUIRED_CATEGORIES: dict[str, set[str]] = {
         "BIO103", "BIO103L", "PHY107", "PHY107L",
     },
     "SHLS Core": {
-        "BBT230",
+        "BBT203",
         "CHE101", "CHE101L", "CHE201", "CHE202", "CHE202L",
         "BIO201", "MIC110",               # theory equivalents (alias pair)
         "BIO201L", "MIC110L",             # lab equivalents (alias pair)
@@ -409,7 +409,23 @@ CGPA_EXCLUDED_BY_PROGRAM: dict[str, set[str]] = {
     "MIC": set(),       # no explicit CGPA exclusions for MIC
 }
 
-PROGRAM_REQUIRED_CREDITS = {"CSE": 130, "MIC": 120}
+# Base required credits when both ENG102 and MAT112 are waived (from program.md)
+PROGRAM_BASE_CREDITS = {"CSE": 130, "MIC": 120}
+PROGRAM_REQUIRED_CREDITS = PROGRAM_BASE_CREDITS  # alias for compatibility
+# Waiverable courses (3 credits each); required = base + (2 - num_waivers) * 3
+WAIVERABLE_COURSES = frozenset({"ENG102", "MAT112"})
+WAIVER_CREDITS_EACH = 3
+
+# CSE Internship/Research: 1 credit mandatory, not open elective (program.md)
+CSE_INTERNSHIP_RESEARCH = frozenset({"CSE498R", "CSE498I"})
+
+
+def get_required_credits_for_waivers(program_key: str, num_waivers: int) -> int:
+    """Required credits based on waiver count (0, 1, or 2 for ENG102 and MAT112)."""
+    base = PROGRAM_BASE_CREDITS.get(program_key)
+    if base is None:
+        return 130
+    return base + (2 - min(2, max(0, num_waivers))) * WAIVER_CREDITS_EACH
 
 MIC_ALIAS_PAIRS: list[tuple[str, str]] = [
     ("BIO201",  "MIC110"),    # Intro to Biochem & Biotech theory equivalents
@@ -580,6 +596,14 @@ def load_program_courses(program_path: Path) -> tuple[dict[str, Set[str]], dict[
             cse_block = text[cse_start:]
             codes["CSE"] = _extract_course_codes_from_text(cse_block)
             credits["CSE"] = _extract_course_credits_from_text(cse_block)
+    # CSE 498R/498I: 1 credit mandatory (Internship/Research), not open elective
+    codes["CSE"].update(CSE_INTERNSHIP_RESEARCH)
+    for c in CSE_INTERNSHIP_RESEARCH:
+        credits["CSE"][c] = 1.0
+    # Waiverable courses: always 3 credits when not waived (program.md)
+    for pkey in ("CSE", "MIC"):
+        credits[pkey]["ENG102"] = 3.0
+        credits[pkey]["MAT112"] = 3.0
     return codes, credits
 
 def load_transcript(path: Path) -> list[dict]:
@@ -658,6 +682,10 @@ def compute_total_valid_credits(
                 per_course[code] = 0.0
                 prereq_failures[normalized] = reason
                 continue
+        # ── Waived courses: count in Credit Completed only, not in Credit Counted ──
+        if waived_courses and normalized in waived_courses:
+            per_course[code] = 0.0
+            continue
         # ─────────────────────────────────────────────────────────────────────
         per_course[code] = raw_credits
 
@@ -672,6 +700,7 @@ def compute_cgpa(
     allowed_codes: Optional[Set[str]],
     program_key: str,
     program_credits: Optional[dict[str, dict[str, float]]] = None,
+    waived_courses: Optional[Set[str]] = None,
 ) -> tuple[float, float, float, dict[str, tuple[str, float, float]]]:
     """
     Compute weighted CGPA per NSU rules:
@@ -680,8 +709,11 @@ def compute_cgpa(
       - W and I: excluded from both numerator and denominator
       - F: included (0 grade points, credits count in denominator)
       - Retakes: only the best grade attempt is used
-      - Returns: (cgpa, total_grade_points, total_credits_attempted,
+      - Denominator is fixed "Credit Counted": 130 (CSE) or 120 (MIC), not
+        Credit Passed (e.g. 133 with one waiver) or Credit Completed.
+      - Returns: (cgpa, total_grade_points, credits_attempted_denom,
                   per_course dict: code -> (grade, credits, grade_points))
+        where credits_attempted_denom is 130/120 for CSE/MIC, else sum of credits.
     """
     by_course: dict[str, list[dict]] = {}
     for r in rows:
@@ -699,6 +731,10 @@ def compute_cgpa(
 
         # Must be in the required curriculum
         if allowed_codes is not None and normalized not in allowed_codes:
+            continue
+
+        # Waived courses don't participate in CGPA (Credit Counted only)
+        if waived_courses and normalized in waived_courses:
             continue
 
         # NCL labs and explicitly CGPA-excluded courses (MAT116 for CSE) don't participate
@@ -737,8 +773,15 @@ def compute_cgpa(
         total_credits += credits
         per_course_cgpa[code] = (grade, credits, gp)
 
-    cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
-    return cgpa, total_points, total_credits, per_course_cgpa
+    # CGPA denominator = fixed Credit Counted (130 CSE / 120 MIC), not Credit Passed or Credit Completed
+    credit_counted_denom = PROGRAM_BASE_CREDITS.get(program_key) if program_key else None
+    if credit_counted_denom is not None and credit_counted_denom > 0:
+        credits_attempted_denom = float(credit_counted_denom)
+        cgpa = round(total_points / credits_attempted_denom, 2)
+    else:
+        credits_attempted_denom = total_credits
+        cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+    return cgpa, total_points, credits_attempted_denom, per_course_cgpa
 
 
 def get_class_equivalence(cgpa: float) -> str:
@@ -935,10 +978,11 @@ def select_electives_cse(
         for c in codes:
             print(f"    {_course_display(c, rows)}")
     all_trail_codes = {c for trail in CSE_TRAILS.values() for c in trail}
-    # Exclude waived courses from open elective preview — they have no graduation role
+    # Exclude waived courses and CSE 498R/498I (mandatory 1cr, not open elective) from open elective preview
     open_preview = sorted([
         c for c in taken
         if normalize_course_code(c) not in _waived
+        and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED  # must be a real NSU course
         and (c in all_trail_codes or c not in (allowed_codes or set()))
     ])
@@ -982,6 +1026,7 @@ def select_electives_cse(
     open_pool = sorted([
         c for c in taken
         if normalize_course_code(c) not in _waived
+        and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED  # must be a real NSU course
         and c not in set(major_electives)
         and (c in all_trail_codes or c not in (allowed_codes or set()))
@@ -1094,30 +1139,43 @@ def print_elective_summary(major_electives: list[str], open_elective: str, progr
 # L2 NEW: Waiver handler
 # ---------------------------------------------------------------------------
 
-def handle_waivers(program_key: str, allowed_codes: Set[str], required_credits: int) -> tuple[Set[str], int, list[str]]:
+def handle_waivers(program_key: str, allowed_codes: Set[str]) -> tuple[Set[str], int, Set[str], list[str]]:
     """
-    Prompt admin about applicable waivers. Returns updated
-    (allowed_codes, required_credits, waiver_notes).
+    Prompt admin about ENG102 and MAT112 waivers. Returns
+    (allowed_codes, required_credits, waived_courses, waiver_notes).
+    Waived courses count in Credit Completed only; not in Credit Counted or CGPA.
     """
     waiver_notes: list[str] = []
+    waived_courses: Set[str] = set()
 
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 56)
     print("  WAIVER CHECK")
-    print("=" * 50)
+    print("  (Waived courses count toward Credit Completed only; not in Credit Counted or CGPA)")
+    print("=" * 56)
 
     if program_key in ("CSE", "MIC"):
-        orig = required_credits
-        eng102_waived = _prompt_yes_no("Is ENG102 waived for this student?")
-        if eng102_waived:
-            allowed_codes = allowed_codes - {"ENG102"}
-            required_credits -= 3
-            waiver_notes.append(f"ENG102 waived — required credits reduced from {orig} to {required_credits}.")
-            print(f"  ✓ ENG102 waiver applied. Required credits: {required_credits}.")
+        print("\n  Answer for each waiverable course:\n")
+        if _prompt_yes_no("Is ENG102 waived for this student?"):
+            waived_courses.add("ENG102")
+            print("    → ENG102 waived.")
         else:
-            print(f"  No waivers applied.")
+            print("    → ENG102 not waived (grade will count in Credit Counted and CGPA).")
+        if _prompt_yes_no("Is MAT112 waived for this student?"):
+            waived_courses.add("MAT112")
+            print("    → MAT112 waived.")
+        else:
+            print("    → MAT112 not waived (grade will count in Credit Counted and CGPA).")
+        num_waivers = len(waived_courses)
+        required_credits = get_required_credits_for_waivers(program_key, num_waivers)
+        print(f"\n  Required credits for {program_key}: {required_credits}  (based on {num_waivers} waiver(s)).")
+        if waived_courses:
+            waiver_notes.append(f"{', '.join(sorted(waived_courses))} waived — count in Credit Completed only.")
+    else:
+        required_credits = PROGRAM_BASE_CREDITS.get(program_key, 130)
+        print(f"\n  Waiver not applicable. Required credits: {required_credits}.")
     print()
 
-    return allowed_codes, required_credits, waiver_notes
+    return allowed_codes, required_credits, waived_courses, waiver_notes
 
 # ---------------------------------------------------------------------------
 # Reporting
@@ -1140,7 +1198,7 @@ def reason_not_counted(
     normalized = normalize_course_code(course_code) if course_code else ""
 
     if waived_courses and normalized in waived_courses:
-        return "waived — excluded from requirements"
+        return "waived — counted in Credit Completed only (not in Credit Counted or CGPA)"
 
     if core_excluded and normalized in core_excluded:
         return "choice slot filled by another course"
@@ -1225,20 +1283,24 @@ def print_report(
             print(f"  Waiver     : {note}")
     print("-" * width)
 
-    # --- Credit summary ---
-    credit_ok = total >= (required_credits or 0)
+    # --- Credit summary (Credit Counted = with grades; Credit Completed = + waived) ---
+    _waived = waived_courses or set()
+    credit_completed = total + WAIVER_CREDITS_EACH * len(_waived)
+    credit_ok = credit_completed >= (required_credits or 0)
     if required_credits is not None:
         status_cr = "✓ MET" if credit_ok else "✗ NOT MET"
-        print(f"  TOTAL VALID CREDITS : {total:.1f} / {required_credits}  [{status_cr}]")
+        print(f"  CREDIT COUNTED   : {total:.1f}  (courses with grades; basis for CGPA)")
+        print(f"  CREDIT COMPLETED : {credit_completed:.1f} / {required_credits}  [{status_cr}]")
     else:
-        print(f"  TOTAL VALID CREDITS : {total:.1f}")
+        print(f"  CREDIT COUNTED   : {total:.1f}")
+        print(f"  CREDIT COMPLETED : {credit_completed:.1f}")
 
     # --- CGPA summary ---
     class_eq = get_class_equivalence(cgpa)
     cgpa_ok = cgpa >= 2.0
     status_gpa = "✓ MET" if cgpa_ok else "✗ BELOW MINIMUM (2.0 required)"
     print(f"  CGPA                : {cgpa:.2f}  [{class_eq}]  [{status_gpa}]")
-    print(f"  Grade Points Earned : {total_gp:.2f}  |  Credits Attempted : {total_cr_attempted:.1f}")
+    print(f"  Grade Points Earned : {total_gp:.2f}  |  Credits Attempted (Credit Counted) : {total_cr_attempted:.1f}")
     print("-" * width)
 
     # --- Per-course credit table ---
@@ -1305,16 +1367,11 @@ def print_report(
             code, col_code, grade, col_grade, credits, col_cr, gp, col_gp, earned))
     print(sep2)
     print(f"\n  Total Grade Points : {total_gp:.2f}")
-    print(f"  Credits Attempted  : {total_cr_attempted:.1f}")
+    print(f"  Credits Attempted (Credit Counted, denom.) : {total_cr_attempted:.1f}")
     print(f"  CGPA               : {cgpa:.2f}  ({class_eq})")
 
-    if cgpa >= 3.00:
-        standing = "First Class"
-    elif cgpa >= 2.50:
-        standing = "Second Class"
-    elif cgpa >= 2.00:
-        standing = "Third Class"
-    else:
+    standing = get_class_equivalence(cgpa)
+    if cgpa < 2.0:
         standing = "⚠  PROBATION — CGPA below 2.0 minimum"
     print(f"  Standing           : {standing}")
     print("\n" + "=" * width)
@@ -1338,9 +1395,9 @@ def main() -> int:
 
     program_codes, program_credits = load_program_courses(args.program_knowledge)
     program_key = (args.program_name or "").strip().upper()
-    allowed_codes = program_codes.get(program_key) if program_key in ("CSE", "MIC") else None
+    # Copy so we don't mutate the shared program_codes set
+    allowed_codes = set(program_codes.get(program_key)) if program_key in ("CSE", "MIC") else None
     credits_by_program = program_credits if program_key in ("CSE", "MIC") else None
-    required_credits = PROGRAM_REQUIRED_CREDITS.get(program_key)
 
     # Gate purely-elective MIC courses behind selection
     if program_key == "MIC" and allowed_codes is not None:
@@ -1350,17 +1407,14 @@ def main() -> int:
 
     rows = load_transcript(args.transcript)
 
-    # --- Waiver handling (L2 addition) ---
+    # --- Waiver handling (ENG102 and MAT112; affects required total and Credit Completed) ---
     waived_courses: Set[str] = set()
     waiver_notes: list[str] = []
+    required_credits = PROGRAM_BASE_CREDITS.get(program_key)
     if program_key in ("CSE", "MIC") and allowed_codes is not None:
-        # Snapshot BEFORE waiver so we diff only the waiver removal — not elective gating.
-        pre_waiver_allowed = set(allowed_codes)
-        allowed_codes, required_credits, waiver_notes = handle_waivers(
-            program_key, allowed_codes, required_credits or 0
+        allowed_codes, required_credits, waived_courses, waiver_notes = handle_waivers(
+            program_key, allowed_codes
         )
-        # Only courses actually removed by the waiver prompt count as waived.
-        waived_courses = pre_waiver_allowed - allowed_codes
 
     # --- MIC core choices ---
     core_excluded: Set[str] = set()
@@ -1430,11 +1484,12 @@ def main() -> int:
         earned_credits=baseline_credits,
     )
 
-    # --- L2: CGPA ---
+    # --- L2: CGPA (excludes waived courses; based on Credit Counted only) ---
     cgpa, total_gp, total_cr_attempted, per_course_cgpa = compute_cgpa(
         rows, allowed_codes=allowed_codes,
         program_key=pkey,
         program_credits=credits_by_program,
+        waived_courses=waived_courses,
     )
 
     # --- Report ---
