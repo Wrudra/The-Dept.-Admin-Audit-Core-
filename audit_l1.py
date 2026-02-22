@@ -127,6 +127,215 @@ CSE_TRAILS: dict[str, list[str]] = {
 # MIC Elective courses (from program.md)
 MIC_ELECTIVES: list[str] = ["MIC201", "MIC318", "MIC404", "MIC311", "MIC309", "MIC416", "MIC417", "MIC418"]
 
+# ── Prerequisite Maps ───────────────────────────────────────────────────────
+# Structure: dict[course_code, list[frozenset[str]]]
+# Each frozenset is an OR-group — at least ONE option in the set must be passed.
+# ALL frozensets in the list must be satisfied (AND relationship).
+# Special tokens:
+#   "WAIVER_ENG102" → satisfied when ENG102 is in waived_courses
+#   "CREDITS_60"    → satisfied when earned_credits >= 60
+#   "CREDITS_100"   → satisfied when earned_credits >= 100
+
+CSE_PREREQS: dict[str, list] = {
+    # GED / University Core
+    "ENG103":  [frozenset({"ENG102", "WAIVER_ENG102"})],
+    "ENG111":  [frozenset({"ENG103"})],
+    "BEN205":  [frozenset({"ENG103"})],
+    # School Core — MAT chain
+    "MAT120":  [frozenset({"MAT116"})],
+    "MAT125":  [frozenset({"MAT116"})],
+    "MAT130":  [frozenset({"MAT120"})],
+    "MAT250":  [frozenset({"MAT130"})],
+    "MAT350":  [frozenset({"MAT250"})],
+    "MAT361":  [frozenset({"MAT250"})],
+    # School Core — PHY / CHE
+    "PHY107":  [frozenset({"MAT120"})],
+    "PHY108":  [frozenset({"MAT130"}), frozenset({"PHY107"})],
+    "CHE101":  [frozenset({"MAT350"})],
+    # CSE Core
+    "CSE173":  [frozenset({"CSE115"})],
+    "CSE215":  [frozenset({"CSE173"})],
+    "CSE215L": [frozenset({"CSE173"})],
+    "CSE225":  [frozenset({"CSE215"})],
+    "CSE225L": [frozenset({"CSE215"})],
+    "CSE231":  [frozenset({"CSE173"})],
+    "CSE231L": [frozenset({"CSE173"})],
+    "EEE141":  [frozenset({"PHY107"}), frozenset({"MAT120"})],
+    "EEE141L": [frozenset({"PHY107"}), frozenset({"MAT120"})],
+    "EEE111":  [frozenset({"EEE141"})],
+    "EEE111L": [frozenset({"EEE141"})],
+    "CSE311":  [frozenset({"CSE225"})],
+    "CSE311L": [frozenset({"CSE225"})],
+    "CSE332":  [frozenset({"CSE231"})],
+    "CSE332L": [frozenset({"CSE231"})],
+    "CSE323":  [frozenset({"CSE332"})],
+    "CSE373":  [frozenset({"CSE225"}), frozenset({"MAT361"})],
+    "CSE327":  [frozenset({"CSE311"})],
+    "CSE331":  [frozenset({"CSE323"})],
+    "CSE331L": [frozenset({"CSE323"})],
+    "CSE425":  [frozenset({"CSE327"})],
+    # Capstone — credit-threshold and sequential
+    "CSE299":  [frozenset({"CREDITS_60"})],
+    "CSE499A": [frozenset({"CREDITS_100"})],
+    "CSE499B": [frozenset({"CSE499A"})],
+}
+
+MIC_PREREQS: dict[str, list] = {
+    # University Core — Languages
+    "ENG105":  [frozenset({"ENG103"})],
+    "BEN205":  [frozenset({"ENG103"})],
+    "ENG111":  [frozenset({"ENG103"})],
+    # SHLS Core — CHE chain
+    "CHE201":  [frozenset({"CHE101"})],
+    "CHE202":  [frozenset({"CHE101"})],
+    "CHE202L": [frozenset({"CHE101L"})],
+    # SHLS Core — BIO chain (alias pairs: BIO201≡MIC110, BIO202≡MIC101)
+    "BIO201":  [frozenset({"BIO103"})],
+    "MIC110":  [frozenset({"BIO103"})],
+    "BIO201L": [frozenset({"BIO103L"})],
+    "MIC110L": [frozenset({"BIO103L"})],
+    "BIO202":  [frozenset({"BIO103"})],
+    "MIC101":  [frozenset({"BIO103"})],
+    "BIO202L": [frozenset({"BIO103L"})],
+    "MIC101L": [frozenset({"BIO103L"})],
+    "MIC203":  [frozenset({"BIO103L"}), frozenset({"BIO202", "MIC101"})],
+    "BBT230":  [frozenset({"BIO201", "MIC110"}), frozenset({"BUS172"})],
+    # Major Core
+    "MIC202":  [frozenset({"CHE101"}), frozenset({"BIO202", "MIC101"})],
+    "MIC307":  [frozenset({"MIC203"}), frozenset({"CHE202"})],
+    "MIC314":  [frozenset({"BIO201", "MIC110"}), frozenset({"MIC202"})],
+    "MIC315":  [frozenset({"MIC203"}), frozenset({"MIC202"})],
+    "MIC315L": [frozenset({"BIO202L", "MIC101L"}), frozenset({"MIC315"})],
+    "MIC316":  [frozenset({"MIC307"})],
+    "MIC316L": [frozenset({"MIC307"})],
+    "MIC317":  [frozenset({"MIC307"}), frozenset({"MIC315"})],
+    "MIC317L": [frozenset({"BIO202L", "MIC101L"}), frozenset({"MIC317"})],
+    "MIC206":  [frozenset({"MIC316"})],
+    "MIC207":  [frozenset({"MIC316"})],
+    "MIC401":  [frozenset({"MIC316"}), frozenset({"MIC309"})],
+    "MIC412":  [frozenset({"MIC315"}), frozenset({"MIC316"})],
+    "MIC413":  [frozenset({"MIC316"}), frozenset({"MIC317"})],
+    "MIC413L": [frozenset({"BIO202L", "MIC101L"}), frozenset({"MIC413"})],
+    "MIC414":  [frozenset({"MIC202"}), frozenset({"MIC203"})],
+    "MIC414L": [frozenset({"BIO202L", "MIC101L"}), frozenset({"MIC414"})],
+    "MIC415":  [frozenset({"MIC202"}), frozenset({"MIC203"})],
+    "MIC415L": [frozenset({"BIO202L", "MIC101L"}), frozenset({"MIC415"})],
+    "MIC498":  [
+        frozenset({"MIC316"}),
+        frozenset({"MIC315L"}), frozenset({"MIC316L"}), frozenset({"MIC317L"}),
+        frozenset({"MIC413L"}), frozenset({"MIC414L"}), frozenset({"MIC415L"}),
+    ],
+    # Electives
+    "MIC201":  [frozenset({"BIO202", "MIC101"})],
+    "MIC309":  [frozenset({"MIC203"}), frozenset({"MIC207"})],
+    "MIC311":  [frozenset({"MIC316"})],
+    "MIC318":  [frozenset({"MIC203"}), frozenset({"MIC201"})],
+    "MIC404":  [frozenset({"MIC307"})],
+    "MIC416":  [frozenset({"MIC316"})],
+    "MIC417":  [frozenset({"MIC317"})],
+    "MIC418":  [frozenset({"MIC416"})],
+}
+
+
+def build_passed_set(rows: list[dict]) -> Set[str]:
+    """Return normalized course codes that have at least one passing grade on the transcript."""
+    seen: dict[str, list[dict]] = {}
+    for r in rows:
+        seen.setdefault(normalize_course_code(r["course_code"]), []).append(r)
+    return {code for code, attempts in seen.items() if has_passing_attempt(attempts)}
+
+
+def prereq_satisfied(
+    course: str,
+    passed_set: Set[str],
+    prereq_map: dict[str, list],
+    waived_courses: Optional[Set[str]] = None,
+    earned_credits: float = 0.0,
+) -> tuple[bool, str]:
+    """
+    Check if every prerequisite AND-group for a course is satisfied.
+    Returns (True, "") on success, (False, "reason string") on failure.
+
+    Logic:
+      - Each frozenset in the spec is an OR-group: ONE of its members must be in passed_set.
+      - All frozensets must pass (AND across groups).
+      - Special tokens: WAIVER_ENG102, CREDITS_60, CREDITS_100.
+    """
+    normalized = normalize_course_code(course)
+    spec = prereq_map.get(normalized)
+    if not spec:
+        return True, ""
+
+    _waived = {normalize_course_code(c) for c in (waived_courses or set())}
+    missing_labels: list[str] = []
+
+    for or_group in spec:
+        # Credit-threshold tokens
+        if "CREDITS_60" in or_group:
+            if earned_credits >= 60:
+                continue
+            missing_labels.append(f"60 credits (have {earned_credits:.0f})")
+            continue
+        if "CREDITS_100" in or_group:
+            if earned_credits >= 100:
+                continue
+            missing_labels.append(f"100 credits (have {earned_credits:.0f})")
+            continue
+
+        # Check if any option in the OR-group is satisfied
+        group_satisfied = False
+        for opt in or_group:
+            opt_norm = normalize_course_code(opt)
+            if opt_norm == "WAIVER_ENG102":
+                if "ENG102" in _waived:
+                    group_satisfied = True
+                    break
+            elif opt_norm in passed_set or opt_norm in _waived:
+                group_satisfied = True
+                break
+
+        if not group_satisfied:
+            real_opts = sorted(o for o in or_group if o != "WAIVER_ENG102")
+            if len(real_opts) == 1:
+                missing_labels.append(real_opts[0])
+            else:
+                missing_labels.append("(" + " or ".join(real_opts) + ")")
+
+    if missing_labels:
+        return False, "prereq not met: " + ", ".join(missing_labels)
+    return True, ""
+
+
+def compute_baseline_credits(
+    rows: list[dict],
+    allowed_codes: Optional[Set[str]],
+    program_credits: Optional[dict[str, dict[str, float]]],
+    program_key: Optional[str],
+) -> float:
+    """
+    Quick credit tally excluding capstone courses, used to evaluate
+    CREDITS_60 / CREDITS_100 prerequisite thresholds before the full audit.
+    """
+    CAPSTONE = {"CSE299", "CSE499A", "CSE499B"}
+    ncl = get_ncl_labs(program_key)
+    by_course: dict[str, list[dict]] = {}
+    for r in rows:
+        by_course.setdefault(r["course_code"], []).append(r)
+    total = 0.0
+    for code, attempts in by_course.items():
+        normalized = normalize_course_code(code)
+        if normalized in CAPSTONE or normalized in ncl:
+            continue
+        if allowed_codes is not None and normalized not in allowed_codes:
+            continue
+        if not has_passing_attempt(attempts):
+            continue
+        if program_credits and program_key and normalized in program_credits.get(program_key, {}):
+            total += program_credits[program_key][normalized]
+        else:
+            total += valid_credits_for_course(attempts)
+    return total
+
 # MIC required course categories — used to flag courses already serving a requirement
 MIC_REQUIRED_CATEGORIES: dict[str, set[str]] = {
     "University Core": {
@@ -402,6 +611,7 @@ def reason_not_counted(
     core_excluded: Optional[Set[str]] = None,
     unselected_electives: Optional[Set[str]] = None,
     waived_courses: Optional[Set[str]] = None,
+    prereq_failure: Optional[str] = None,
 ) -> str:
     """Return a specific reason why this course contributes 0 credits."""
     if not attempts:
@@ -418,6 +628,9 @@ def reason_not_counted(
             if normalized not in NSU_CATALOG_EXPANDED:
                 return "Not Provided by NSU"
             return f"not in {program_name} curriculum"
+    # Prerequisite failure — course is in curriculum and passed, but prereq unmet
+    if prereq_failure:
+        return prereq_failure
     passing = [a for a in attempts if is_passing(a["grade"])]
     if passing:
         best = max(passing, key=lambda a: (GRADE_RANK.get(a["grade"], 0), a["credits"]))
@@ -456,14 +669,20 @@ def compute_total_valid_credits(
     allowed_codes: Optional[Set[str]] = None,
     program_credits: Optional[dict[str, dict[str, float]]] = None,
     program_key: Optional[str] = None,
-) -> tuple[float, dict[str, float], dict[str, list[dict]]]:
-    """Group by course_code, compute valid credits per course; apply program-specific credit overrides (e.g. MAT116)."""
+    prereq_map: Optional[dict[str, list]] = None,
+    passed_set: Optional[Set[str]] = None,
+    waived_courses: Optional[Set[str]] = None,
+    earned_credits: float = 0.0,
+) -> tuple[float, dict[str, float], dict[str, list[dict]], dict[str, str]]:
+    """Group by course_code, compute valid credits per course; apply prereq enforcement."""
     by_course: dict[str, list[dict]] = {}
     for r in rows:
         code = r["course_code"]
         by_course.setdefault(code, []).append(r)
 
-    per_course = {}
+    per_course: dict[str, float] = {}
+    prereq_failures: dict[str, str] = {}   # normalized code → failure reason
+
     for code, attempts in by_course.items():
         normalized = normalize_course_code(code)
         # Non-credit labs are never counted regardless of program credit definition
@@ -474,20 +693,34 @@ def compute_total_valid_credits(
         if allowed_codes is not None:
             if normalized not in allowed_codes:
                 per_course[code] = 0.0
+                continue
+        # Program-specific credit override (e.g. MAT116: 0 for CSE, 3 for MIC)
+        if program_credits and program_key and normalized in program_credits.get(program_key, {}):
+            override = program_credits[program_key][normalized]
+            if has_passing_attempt(attempts):
+                raw_credits = override
             else:
-                # Program-specific credit override (e.g. MAT116: 0 for CSE, 3 for MIC)
-                if program_credits and program_key and normalized in program_credits.get(program_key, {}):
-                    override = program_credits[program_key][normalized]
-                    if has_passing_attempt(attempts):
-                        per_course[code] = override
-                    else:
-                        per_course[code] = 0.0
-                else:
-                    per_course[code] = raw_credits
-        else:
-            per_course[code] = raw_credits
+                per_course[code] = 0.0
+                continue
+        # No passing grade → 0
+        if raw_credits == 0 and not has_passing_attempt(attempts):
+            per_course[code] = 0.0
+            continue
+        # ── Prerequisite check ───────────────────────────────────────────────
+        if prereq_map and passed_set is not None and has_passing_attempt(attempts):
+            ok, reason = prereq_satisfied(
+                code, passed_set, prereq_map,
+                waived_courses=waived_courses,
+                earned_credits=earned_credits,
+            )
+            if not ok:
+                per_course[code] = 0.0
+                prereq_failures[normalized] = reason
+                continue
+        # ─────────────────────────────────────────────────────────────────────
+        per_course[code] = raw_credits
 
-    return sum(per_course.values()), per_course, by_course
+    return sum(per_course.values()), per_course, by_course, prereq_failures
 
 
 def print_report(
@@ -507,6 +740,7 @@ def print_report(
     unselected_electives: Optional[Set[str]] = None,
     waiver_applied: bool = False,
     waived_courses: Optional[Set[str]] = None,
+    prereq_failures: Optional[dict[str, str]] = None,
 ) -> None:
     """Print one organized report: header, total, and full per-course breakdown."""
     major_set = set(normalize_course_code(c) for c in (major_electives or []))
@@ -573,6 +807,7 @@ def print_report(
                 core_excluded=core_excluded,
                 unselected_electives=unselected_electives,
                 waived_courses=waived_courses,
+                prereq_failure=(prereq_failures or {}).get(normalize_course_code(code)),
             )
             status = reason[:col_status] if len(reason) <= col_status else reason[: col_status - 3] + "..."
             print("  | {:<{}} | {:^{}} | {:<{}} | {:<{}} |".format(code, col_code, "—", col_cr, grade, col_grade, status, col_status))
@@ -1109,11 +1344,24 @@ def main() -> int:
     all_selected_electives = set(major_electives) | set(free_electives) | ({open_elective} if open_elective else set())
     unselected_electives = all_elective_candidates - all_selected_electives
 
-    total, per_course, by_course = compute_total_valid_credits(
+    # --- Prerequisite setup ---
+    pkey = program_key if program_key in ("CSE", "MIC") else None
+    prereq_map = CSE_PREREQS if pkey == "CSE" else (MIC_PREREQS if pkey == "MIC" else None)
+    passed_set = build_passed_set(rows) if prereq_map else None
+    # Baseline credit tally (no prereq enforcement) used for CREDITS_60/100 checks
+    baseline_credits = compute_baseline_credits(
+        rows, allowed_codes, credits_by_program, pkey
+    ) if prereq_map else 0.0
+
+    total, per_course, by_course, prereq_failures = compute_total_valid_credits(
         rows,
         allowed_codes=allowed_codes,
         program_credits=credits_by_program,
-        program_key=program_key if program_key in ("CSE", "MIC") else None,
+        program_key=pkey,
+        prereq_map=prereq_map,
+        passed_set=passed_set,
+        waived_courses=waived_courses,
+        earned_credits=baseline_credits,
     )
     print_report(
         args.transcript,
@@ -1124,7 +1372,7 @@ def main() -> int:
         required_credits,
         allowed_codes=allowed_codes,
         program_credits=credits_by_program,
-        program_key=program_key if program_key in ("CSE", "MIC") else None,
+        program_key=pkey,
         major_electives=major_electives,
         open_elective=open_elective,
         free_electives=free_electives,
@@ -1132,6 +1380,7 @@ def main() -> int:
         unselected_electives=unselected_electives,
         waiver_applied=waiver_applied,
         waived_courses=waived_courses,
+        prereq_failures=prereq_failures,
     )
 
     return 0
