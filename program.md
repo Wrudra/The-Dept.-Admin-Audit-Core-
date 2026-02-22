@@ -99,13 +99,13 @@ GPA = Total Grade Points Earned ÷ Credits Attempted
 
 | Category                | Credits         |
 | ----------------------- | --------------- |
-| GED / University Core   | 34 Credits      |
+| GED / University Core   | 33 Credits      |
 | School Core             | 38 Credits      |
 | CSE Core                | 42 Credits      |
 | Capstone                | 4 Credits       |
 | Major Electives (Trail) | 9 Credits       |
 | Open Electives          | 3 Credits       |
-| Internship/Research     | Non-credit      |
+| Internship/Research     | 1 Credit        |
 | Minor (Optional)        | -               |
 | **Total Credit**        | **130 Credits** |
 
@@ -115,20 +115,20 @@ GPA = Total Grade Points Earned ÷ Credits Attempted
 
 _11 Theory & 1 Lab Course_
 
-| Course                                | Credits | Notes         |
-| ------------------------------------- | ------- | ------------- |
-| ENG 102                               | 3       | _0 if waived_ |
-| ENG 103                               | 3       |               |
-| ENG 111                               | 3       |               |
-| BEN 205                               | 3       |               |
-| HIS 102                               | 3       |               |
-| HIS 103                               | 3       |               |
-| PHI 104                               | 3       |               |
-| BIO 103                               | 3       |               |
-| **BIO 103L**                          | **0**   | **Lab**       |
-| POL 101 / POL 104                     | 3       | Choose one    |
-| ECO 101 / ECO 104                     | 3       | Choose one    |
-| SOC 101 / ENV 203 / GEO 205 / ANT 101 | 3       | Choose one    |
+| Course                                | Credits | Prerequisites  | Notes         |
+| ------------------------------------- | ------- | -------------- | ------------- |
+| ENG 102                               | 3       | None           | _0 if waived_ |
+| ENG 103                               | 3       | ENG 102/Waiver |               |
+| ENG 111                               | 3       | None           |               |
+| BEN 205                               | 3       | ENG 103        |               |
+| HIS 102                               | 3       | None           |               |
+| HIS 103                               | 3       | None           |               |
+| PHI 104                               | 3       | None           |               |
+| BIO 103                               | 3       | None           |               |
+| **BIO 103L**                          | **0**   | None           | **Lab**       |
+| POL 101 / POL 104                     | 3       | None           | Choose one    |
+| ECO 101 / ECO 104                     | 3       | None           | Choose one    |
+| SOC 101 / ENV 203 / GEO 205 / ANT 101 | 3       | None           | Choose one    |
 
 ---
 
@@ -136,25 +136,25 @@ _11 Theory & 1 Lab Course_
 
 _13 Theory & 4 Lab Courses_
 
-| Course       | Credits | Notes               |
-| ------------ | ------- | ------------------- |
-| MAT 116      | 0       | Not counted in CGPA |
-| MAT 120      | 3       |                     |
-| MAT 125      | 3       |                     |
-| MAT 130      | 3       |                     |
-| MAT 250      | 3       |                     |
-| MAT 350      | 3       |                     |
-| MAT 361      | 3       |                     |
-| PHY 107      | 3       |                     |
-| **PHY 107L** | **1**   | **Lab**             |
-| PHY 108      | 3       |                     |
-| **PHY 108L** | **1**   | **Lab**             |
-| CHE 101      | 3       |                     |
-| **CHE 101L** | **1**   | **Lab**             |
-| EEE 452      | 3       |                     |
-| EEE 154      | 1       | Theory (1 credit)   |
-| CSE 115      | 3       |                     |
-| **CSE 115L** | **1**   | **Lab**             |
+| Course       | Credits | Prerequisites    | Notes               |
+| ------------ | ------- | ---------------- | ------------------- |
+| MAT 116      | 0       | None             | Not counted in CGPA |
+| MAT 120      | 3       | MAT 116          |                     |
+| MAT 125      | 3       | MAT 116          |                     |
+| MAT 130      | 3       | MAT 120          |                     |
+| MAT 250      | 3       | MAT 130          |                     |
+| MAT 350      | 3       | MAT 250          |                     |
+| MAT 361      | 3       | MAT 250          |                     |
+| PHY 107      | 3       | MAT 120          |                     |
+| **PHY 107L** | **1**   | MAT 120          | **Lab**             |
+| PHY 108      | 3       | MAT 130, PHY 107 |                     |
+| **PHY 108L** | **1**   | MAT 130, PHY 107 | **Lab**             |
+| CHE 101      | 3       | MAT 350          |                     |
+| **CHE 101L** | **1**   | None             | **Lab**             |
+| EEE 452      | 3       | None             |                     |
+| EEE 154      | 1       | None             | Theory (1 credit)   |
+| CSE 115      | 3       | None             |                     |
+| **CSE 115L** | **1**   | None             | **Lab**             |
 
 ---
 
@@ -162,29 +162,29 @@ _13 Theory & 4 Lab Courses_
 
 _13 Theory & 8 Lab Courses_
 
-| Course       | Credits        | Notes   |
-| ------------ | -------------- | ------- |
-| CSE 173      | 3              |         |
-| CSE 215      | 3              |         |
-| **CSE 215L** | **1**          | **Lab** |
-| CSE 225      | 3              |         |
-| **CSE 225L** | **Non-Credit** | **Lab** |
-| CSE 231      | 3              |         |
-| **CSE 231L** | **Non-Credit** | **Lab** |
-| EEE 141      | 3              |         |
-| **EEE 141L** | **1**          | **Lab** |
-| EEE 111      | 3              |         |
-| **EEE 111L** | **1**          | **Lab** |
-| CSE 311      | 3              |         |
-| **CSE 311L** | **Non-Credit** | **Lab** |
-| CSE 323      | 3              |         |
-| CSE 327      | 3              |         |
-| CSE 331      | 3              |         |
-| **CSE 331L** | **Non-Credit** | **Lab** |
-| CSE 373      | 3              |         |
-| CSE 332      | 3              |         |
-| **CSE 332L** | **Non-Credit** | **Lab** |
-| CSE 425      | 3              |         |
+| Course       | Credits        | Prerequisites    | Notes   |
+| ------------ | -------------- | ---------------- | ------- |
+| CSE 173      | 3              | CSE 115          |         |
+| CSE 215      | 3              | CSE 173          |         |
+| **CSE 215L** | **1**          | CSE 173          | **Lab** |
+| CSE 225      | 3              | CSE 215          |         |
+| **CSE 225L** | **Non-Credit** | CSE 215          | **Lab** |
+| CSE 231      | 3              | CSE 173          |         |
+| **CSE 231L** | **Non-Credit** | CSE 173          | **Lab** |
+| EEE 141      | 3              | PHY 107, MAT 120 |         |
+| **EEE 141L** | **1**          | PHY 107, MAT 120 | **Lab** |
+| EEE 111      | 3              | EEE 141          |         |
+| **EEE 111L** | **1**          | EEE 141          | **Lab** |
+| CSE 311      | 3              | CSE 225          |         |
+| **CSE 311L** | **Non-Credit** | CSE 225          | **Lab** |
+| CSE 323      | 3              | CSE 332          |         |
+| CSE 327      | 3              | CSE 311          |         |
+| CSE 331      | 3              | CSE 323          |         |
+| **CSE 331L** | **Non-Credit** | CSE 323          | **Lab** |
+| CSE 373      | 3              | CSE 225, MAT 361 |         |
+| CSE 332      | 3              | CSE 231          |         |
+| **CSE 332L** | **Non-Credit** | CSE 231          | **Lab** |
+| CSE 425      | 3              | CSE 327          |         |
 
 ### Non-Credit Labs
 
@@ -200,11 +200,11 @@ These labs require 1 credit fee payment but grades count as percentage of theory
 
 ## Capstone (4 Credits)
 
-| Course   | Credits |
-| -------- | ------- |
-| CSE 299  | 1       |
-| CSE 499A | 1.5     |
-| CSE 499B | 1.5     |
+| Course   | Credits | Prerequisites         |
+| -------- | ------- | --------------------- |
+| CSE 299  | 1       | 60 credits completed  |
+| CSE 499A | 1.5     | 100 credits completed |
+| CSE 499B | 1.5     | CSE 499A              |
 
 ---
 
@@ -333,49 +333,49 @@ _Contact DMP for more details_
 - **ENG103 and ENG105 are mandatory** language courses for all NSU UG students
 - **BEN205 or ENG111** — choose one; Batch 163+ must take BEN205
 
-| Course          | Credits | Notes                                        |
-| --------------- | ------- | -------------------------------------------- |
-| ENG102          | 3       | _0 if waived_                                |
-| ENG103          | 3       | **Mandatory**                                |
-| ENG105          | 3       | **Mandatory**                                |
-| BEN205 / ENG111 | 3       | Choose one (BEN205 mandatory for Batch 163+) |
+| Course          | Credits | Prerequisites | Notes                                        |
+| --------------- | ------- | ------------- | -------------------------------------------- |
+| ENG102          | 3       | None          | _0 if waived_                                |
+| ENG103          | 3       | None          | **Mandatory**                                |
+| ENG105          | 3       | ENG103        | **Mandatory**                                |
+| BEN205 / ENG111 | 3       | ENG103        | Choose one (BEN205 mandatory for Batch 163+) |
 
 ### Humanities (3 Credits)
 
-| Course | Credits |
-| ------ | ------- |
-| HIS101 | 3       |
-| HIS103 | 3       |
-| PHI101 | 3       |
+| Course | Credits | Prerequisites |
+| ------ | ------- | ------------- |
+| HIS101 | 3       | None          |
+| HIS103 | 3       | None          |
+| PHI101 | 3       | None          |
 
 _Choose one_
 
 ### Social Sciences (3 Credits)
 
-| Course          | Credits |
-| --------------- | ------- |
-| POL101 / POL104 | 3       |
-| ECO101 / ECO104 | 3       |
-| SOC101 / ANT101 | 3       |
+| Course          | Credits | Prerequisites |
+| --------------- | ------- | ------------- |
+| POL101 / POL104 | 3       | None          |
+| ECO101 / ECO104 | 3       | None          |
+| SOC101 / ANT101 | 3       | None          |
 
 _Choose one_
 
 ### Computer and Math (9 Credits)
 
-| Course | Credits |
-| ------ | ------- |
-| MIS107 | 3       |
-| MAT116 | 3       |
-| BUS172 | 3       |
+| Course | Credits | Prerequisites |
+| ------ | ------- | ------------- |
+| MIS107 | 3       | None          |
+| MAT116 | 3       | None          |
+| BUS172 | 3       | None          |
 
 ### Science (4 Credits — Choose one pair)
 
-| Course      | Credits | Option | Notes          |
-| ----------- | ------- | ------ | -------------- |
-| BIO103      | 3       | A      |                |
-| **BIO103L** | **1**   | A      | Lab            |
-| PHY107      | 3       | B      | Prereq: MAT120 |
-| **PHY107L** | **1**   | B      | Lab            |
+| Course      | Credits | Option | Prerequisites | Notes |
+| ----------- | ------- | ------ | ------------- | ----- |
+| BIO103      | 3       | A      | None          |       |
+| **BIO103L** | **1**   | A      | None          | Lab   |
+| PHY107      | 3       | B      | MAT120        |       |
+| **PHY107L** | **1**   | B      | MAT120        | Lab   |
 
 _Choose one pair (A or B) — both theory and lab must be completed._
 
@@ -383,46 +383,46 @@ _Choose one pair (A or B) — both theory and lab must be completed._
 
 ## SHLS Core (25 Credits)
 
-| Course            | Credits | Notes   |
-| ----------------- | ------- | ------- |
-| BBT230            | 3       |         |
-| CHE101            | 3       |         |
-| **CHE101L**       | **1**   | **Lab** |
-| CHE201            | 3       |         |
-| CHE202            | 3       |         |
-| **CHE202L**       | **1**   | **Lab** |
-| BIO201 / MIC110   | 3       |         |
-| BIO201L / MIC110L | 1       | **Lab** |
-| BIO202 / MIC101   | 3       |         |
-| BIO202L / MIC101L | 1       | **Lab** |
-| MIC203            | 3       |         |
+| Course            | Credits | Prerequisites            | Notes   |
+| ----------------- | ------- | ------------------------ | ------- |
+| BBT230            | 3       | BIO201, BUS172           |         |
+| CHE101            | 3       | None                     |         |
+| **CHE101L**       | **1**   | None                     | **Lab** |
+| CHE201            | 3       | CHE101                   |         |
+| CHE202            | 3       | CHE101                   |         |
+| **CHE202L**       | **1**   | CHE101L                  | **Lab** |
+| BIO201 / MIC110   | 3       | BIO103                   |         |
+| BIO201L / MIC110L | 1       | BIO103L                  | **Lab** |
+| BIO202 / MIC101   | 3       | BIO103                   |         |
+| BIO202L / MIC101L | 1       | BIO103L, BIO202 / MIC101 | **Lab** |
+| MIC203            | 3       | BIO201, BIO202 / MIC101  |         |
 
 ---
 
 ## Major Core Courses (49 Credits)
 
-| Course      | Credits |
-| ----------- | ------- |
-| MIC202      | 3       |
-| MIC206      | 3       |
-| MIC207      | 3       |
-| MIC307      | 3       |
-| MIC314      | 3       |
-| MIC315      | 3       |
-| **MIC315L** | **1**   |
-| MIC316      | 3       |
-| **MIC316L** | **1**   |
-| MIC317      | 3       |
-| **MIC317L** | **1**   |
-| MIC401      | 3       |
-| MIC412      | 3       |
-| MIC413      | 3       |
-| **MIC413L** | **1**   |
-| MIC414      | 3       |
-| **MIC414L** | **1**   |
-| MIC415      | 3       |
-| **MIC415L** | **1**   |
-| MIC498      | 4       |
+| Course      | Credits | Prerequisites           |
+| ----------- | ------- | ----------------------- |
+| MIC202      | 3       | CHE101, BIO202          |
+| MIC206      | 3       | MIC316                  |
+| MIC207      | 3       | MIC203, CHE202          |
+| MIC307      | 3       | BIO201, MIC202          |
+| MIC314      | 3       | MIC201, MIC202          |
+| MIC315      | 3       | MIC203, MIC202          |
+| **MIC315L** | **1**   | BIO202L, MIC315         |
+| MIC316      | 3       | MIC307                  |
+| **MIC316L** | **1**   | MIC201L, MIC316         |
+| MIC317      | 3       | MIC307, MIC315          |
+| **MIC317L** | **1**   | BIO202L, MIC317         |
+| MIC401      | 3       | MIC316, MIC309          |
+| MIC412      | 3       | MIC315, MIC316          |
+| MIC413      | 3       | MIC316, MIC317          |
+| **MIC413L** | **1**   | BIO202L, MIC413         |
+| MIC414      | 3       | MIC202, MIC203          |
+| **MIC414L** | **1**   | BIO202L, MIC414         |
+| MIC415      | 3       | MIC202, MIC203          |
+| **MIC415L** | **1**   | BIO202L, MIC415         |
+| MIC498      | 4       | All Lab Courses, MIC316 |
 
 ---
 
@@ -430,16 +430,16 @@ _Choose one pair (A or B) — both theory and lab must be completed._
 
 _Choose any three courses from the electives list_
 
-| Course | Credits |
-| ------ | ------- |
-| MIC201 | 3       |
-| MIC318 | 3       |
-| MIC404 | 3       |
-| MIC311 | 3       |
-| MIC309 | 3       |
-| MIC416 | 3       |
-| MIC417 | 3       |
-| MIC418 | 3       |
+| Course | Credits | Prerequisites  |
+| ------ | ------- | -------------- |
+| MIC201 | 3       | BIO202         |
+| MIC318 | 3       | MIC203, MIC201 |
+| MIC404 | 3       | MIC307         |
+| MIC311 | 3       | MIC316         |
+| MIC309 | 3       | MIC203, MIC207 |
+| MIC416 | 3       | MIC316         |
+| MIC417 | 3       | MIC317         |
+| MIC418 | 3       | MIC416         |
 
 ---
 
