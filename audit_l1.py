@@ -74,8 +74,10 @@ NSU_CATALOG: Set[str] = {
     "CHE203","CHE203L","CHN101","CHN201","CSE101","CSE115","CSE115L","CSE145","CSE173","CSE215",
     "CSE215L","CSE225","CSE225L","CSE226","CSE231","CSE231L","CSE273","CSE311/ETE335","CSE311L/ETE335L","CSE323",
     "CSE325/CSE425","CSE327","CSE331/EEE332/EEE453/ETE332","CSE331L/EEE332L/EEE453L/ETE332L","CSE332/EEE336","CSE332L/EEE336L","CSE338/CSE438","CSE338/CSE438/EEE331/ETE331","CSE338L/CSE438L","CSE338L/CSE438L/EEE331L/ETE331L",
-    "CSE373","CSE411","CSE413L/EEE413L/ETE419L","CSE435/EEE411/ETE412","CSE435L/EEE411L/ETE412L","CSE440/EEE333/ETE333","CSE445","CSE465","CSE468","CSE482/ETE334",
-    "CSE482L/ETE334L","CSE495A","CSE495B","CSE532/EEE560","CSE534","CSE562","CSE583","CSE597/EEE597/ETE597","DEV503","DEV564",
+    "CSE373","CSE401","CSE411","CSE413L/EEE413L/ETE419L","CSE418","CSE424","CSE427","CSE428","CSE429","CSE433",
+    "CSE435/EEE411/ETE412","CSE435L/EEE411L/ETE412L","CSE440/EEE333/ETE333","CSE445","CSE446","CSE447","CSE448","CSE449",
+    "CSE465","CSE468","CSE470","CSE482/ETE334",
+    "CSE482L/ETE334L","CSE491","CSE492","CSE493","CSE494","CSE495A","CSE495B","CSE496","CSE532/EEE560","CSE534","CSE562","CSE583","CSE597/EEE597/ETE597","DEV503","DEV564",
     "DEV565","DEV577","DEV595","DEV596","ECO101","ECO103","ECO104","ECO134","ECO135","ECO172",
     "ECO173","ECO201","ECO204","ECO245","ECO301","ECO304","ECO309","ECO317","ECO348","ECO372",
     "ECO406","ECO415","ECO486","ECO490","ECO492","ECO496","ECO503","ECO504","ECO514","ECO614",
@@ -155,11 +157,12 @@ NSU_CATALOG_EXPANDED: Set[str] = {
 #  Trail / elective / choice definitions
 # ══════════════════════════════════════════════════════════════════════════════
 CSE_TRAILS: dict[str, list[str]] = {
-    "Algorithms and Computation": ["CSE257","CSE417","CSE326","CSE426","CSE273","CSE473"],
-    "Software Engineering":       ["CSE411"],
-    "Networks":                   ["CSE422","CSE562","CSE338","CSE438","CSE482","CSE485","CSE486"],
-    "Computer Architecture & VLSI": ["CSE435","CSE413","CSE414","CSE495A"],
-    "Artificial Intelligence":    ["CSE440","CSE445","CSE465","CSE467","CSE419","CSE598","CSE495B"],
+    "Algorithms and Computation": ["CSE257","CSE417","CSE401","CSE418","CSE326","CSE426","CSE273","CSE473","CSE491"],
+    "Software Engineering":       ["CSE411","CSE424","CSE427","CSE428","CSE429","CSE492"],
+    "Networks":                   ["CSE422","CSE562","CSE338","CSE438","CSE482","CSE485","CSE486","CSE493"],
+    "Computer Architecture & VLSI": ["CSE433","CSE435","CSE413","CSE414","CSE495A","CSE494"],
+    "Artificial Intelligence":    ["CSE440","CSE445","CSE465","CSE467","CSE419","CSE598","CSE468","CSE470","CSE495B"],
+    "Bioinformatics":             ["CSE446","CSE447","CSE448","CSE449","CSE496"],
 }
 
 MIC_ELECTIVES: list[str] = ["MIC201","MIC318","MIC404","MIC311","MIC309","MIC416","MIC417","MIC418"]
@@ -214,6 +217,26 @@ CSE_PREREQS: dict[str, list] = {
     "CSE299":  [frozenset({"CREDITS_60"})],
     "CSE499A": [frozenset({"CREDITS_100"})],
     "CSE499B": [frozenset({"CSE499A"})],
+    # ── Trail elective prerequisites (from NSU ECE website) ──────────────────
+    "CSE417":  [frozenset({"CSE225"}),frozenset({"MAT125"})],
+    "CSE418":  [frozenset({"CSE225"}),frozenset({"CSE332"})],
+    "CSE426":  [frozenset({"CSE332"})],
+    "CSE473":  [frozenset({"CSE173"}),frozenset({"CSE225"})],
+    "CSE411":  [frozenset({"CSE311"})],
+    "CSE424":  [frozenset({"CSE225"})],
+    "CSE427":  [frozenset({"CSE327"})],
+    "CSE428":  [frozenset({"CSE327"})],
+    "CSE429":  [frozenset({"CSE327"})],
+    "CSE438":  [frozenset({"CSE215"})],
+    "CSE482":  [frozenset({"CSE338","CSE438"})],
+    "CSE433":  [frozenset({"CSE331"})],
+    "CSE435":  [frozenset({"EEE111"}),frozenset({"CSE231"})],
+    "CSE413":  [frozenset({"CSE231"})],
+    "CSE414":  [frozenset({"CSE413"})],
+    "CSE440":  [frozenset({"CSE225"}),frozenset({"MAT361"})],
+    "CSE465":  [frozenset({"CSE373"})],
+    "CSE468":  [frozenset({"CSE440"})],
+    # ── End trail elective prerequisites ─────────────────────────────────────
     # Minor in Mathematics — all additional courses require MAT250
     "MAT370":  [frozenset({"MAT250"})],
     "MAT480":  [frozenset({"MAT250"})],
@@ -1016,7 +1039,8 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
         print("\n  SCIENCE — student passed courses from multiple pairs (pick one pair):")
         pair_opts = [f"{t}+{l}" for t,l in passed_pairs]
         chosen_str = _prompt_pick("", pair_opts, display=[
-            f"{t}  +  {l}" for t,l in passed_pairs
+            f"{t} ({get_display_grade(by_course[t])})  +  {l} ({get_display_grade(by_course.get(l,[]))})"
+            for t,l in passed_pairs
         ])
         chosen_theory, chosen_lab = chosen_str.split("+")
         for theory, lab in passed_pairs:

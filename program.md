@@ -213,45 +213,74 @@ These labs require 1 credit fee payment but grades count as percentage of theory
 
 _3 courses required: minimum 2 from one trail, 1 from another_
 
-### Commonly Offered Trail Courses
+### Trail Courses
 
 **Algorithms and Computation Trail**
 
-- CSE 257 / CSE 417 (3 credits, NCL)
-- CSE 326 / CSE 426 (3 credits)
-- CSE 273 / CSE 473 (3 credits)
+| Course            | Credits | Prerequisites             | Notes |
+| ----------------- | ------- | ------------------------- | ----- |
+| CSE 257 / CSE 417 | 3       | CSE 225, MAT 125, MAT 240 | NCL   |
+| CSE 401           | 3       | None                      |       |
+| CSE 418           | 3       | CSE 225, CSE 332          |       |
+| CSE 326 / CSE 426 | 3       | CSE 332                   |       |
+| CSE 273 / CSE 473 | 3       | CSE 173, CSE 225          |       |
+| CSE 491           | 3       | None                      |       |
 
 **Software Engineering Trail**
 
-- CSE 411 (3 credits, LO 213)
+| Course  | Credits | Prerequisites | Notes  |
+| ------- | ------- | ------------- | ------ |
+| CSE 411 | 3       | CSE 311       | LO 213 |
+| CSE 424 | 3       | CSE 225       |        |
+| CSE 427 | 3       | CSE 327       |        |
+| CSE 428 | 3       | CSE 327       |        |
+| CSE 429 | 3       | CSE 327       |        |
+| CSE 492 | 3       | None          |        |
 
 **Networks Trail**
 
-- CSE 422 / CSE 562 (3 credits, offered every Fall)
-- CSE 338 / CSE 438 (3 credits, NCL)
-- CSE 482 (3 credits, NCL)
-- CSE 485 (3 credits, NCL, LO 211)
-- CSE 486 (3 credits, NCL, LO 212)
+| Course            | Credits | Prerequisites | Notes              |
+| ----------------- | ------- | ------------- | ------------------ |
+| CSE 422 / CSE 562 | 3       | None          | Offered every Fall |
+| CSE 338 / CSE 438 | 3       | CSE 215       | NCL                |
+| CSE 482           | 3       | CSE 338       | NCL                |
+| CSE 485           | 3       | None          | NCL, LO 211        |
+| CSE 486           | 3       | None          | NCL, LO 212        |
+| CSE 493           | 3       | None          |                    |
 
 **Computer Architecture and VLSI Trail**
 
-- CSE 435 (3 credits, NCL)
-- CSE 413 (3 credits, NCL)
-- CSE 414 (3 credits, NCL, LO 211)
-- CSE 495A (3 credits)
+| Course   | Credits | Prerequisites    | Notes       |
+| -------- | ------- | ---------------- | ----------- |
+| CSE 433  | 3       | CSE 331          |             |
+| CSE 435  | 3       | EEE 111, CSE 231 | NCL         |
+| CSE 413  | 3       | CSE 231          | NCL         |
+| CSE 414  | 3       | CSE 413          | NCL, LO 211 |
+| CSE 495A | 3       | None             |             |
+| CSE 494  | 3       | None             |             |
 
 **Artificial Intelligence Trail**
 
-- CSE 440 (3 credits)
-- CSE 445 (3 credits)
-- CSE 465 (3 credits)
-- CSE 467 (3 credits, LO 213)
-- CSE 419 / CSE 598 (3 credits)
-- CSE 495B (3 credits)
+| Course            | Credits | Prerequisites    | Notes  |
+| ----------------- | ------- | ---------------- | ------ |
+| CSE 419 / CSE 598 | 3       | None             |        |
+| CSE 440           | 3       | CSE 225, MAT 361 |        |
+| CSE 445           | 3       | None             |        |
+| CSE 465           | 3       | CSE 373          |        |
+| CSE 467           | 3       | None             | LO 213 |
+| CSE 468           | 3       | CSE 440          |        |
+| CSE 470           | 3       | None             |        |
+| CSE 495B          | 3       | None             |        |
 
 **Bioinformatics Trail**
 
-- None commonly offered
+| Course  | Credits | Prerequisites | Notes |
+| ------- | ------- | ------------- | ----- |
+| CSE 446 | 3       | None          |       |
+| CSE 447 | 3       | None          |       |
+| CSE 448 | 3       | None          |       |
+| CSE 449 | 3       | None          |       |
+| CSE 496 | 3       | None          |       |
 
 _NCL = Course contains Non-Credit Lab_  
 _LO = Last Offered (Semester Code)_
