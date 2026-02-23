@@ -141,16 +141,21 @@ def compute_cgpa(
     prereq_failures:  Optional[dict[str,str]] = None,
 ) -> tuple[float,float,float,dict[str,tuple[str,float,float]]]:
     """
-    Compute weighted CGPA per NSU rules:
+    Compute weighted CGPA per NSU rules (verified against live NSU transcript PDF):
+
+      CGPA = Σ (Credit_Counted_i × GradePoint_i) / Σ Credit_Counted_i
+
       • Only courses in the program curriculum (allowed_codes) count.
       • NCL (0-credit) labs and explicitly excluded courses (MAT116 for CSE) are skipped.
       • W and I are excluded from both numerator and denominator.
-      • F contributes 0 grade points but credits count in denominator.
-      • Prereq-failed courses are EXCLUDED — a passed course whose prerequisite
+      • F contributes 0 grade points; its credits still enter the denominator.
+      • Retakes: ONLY the best attempt counts — superseded attempts are fully
+        discarded from both numerator and denominator (denominator = Credit Counted,
+        not inflated by retake history). Evidence: 501.7 GP ÷ 130.0 Cr = 3.86 CGPA.
+      • Prereq-failed courses are excluded — a passed course whose prerequisite
         was not satisfied must not inflate CGPA (mirrors credit tally behaviour).
-      • Retakes: only best grade used (same tiebreak rule as credit tally).
-      • Denominator = fixed Credit Counted base (130 CSE / 120 MIC) — NSU policy.
-    Returns: (cgpa, total_grade_points, credits_attempted_denom, per_course_dict)
+      • Denominator = Credit Counted (one entry per course, best or F attempt only).
+    Returns: (cgpa, total_grade_points, credit_counted_denom, per_course_dict)
     """
     by_course: dict[str,list[dict]] = {}
     for r in rows:
@@ -186,9 +191,12 @@ def compute_cgpa(
 
         passing = [a for a in cgpa_att if is_passing(a["grade"])]
         if passing:
-            best   = max(passing, key=lambda a: GRADE_RANK.get(a["grade"],0))
-            grade  = best["grade"]
-            credits= _eff_cr(best)
+            best      = max(passing, key=lambda a: GRADE_RANK.get(a["grade"],0))
+            grade     = best["grade"]
+            credits   = _eff_cr(best)
+            # Superseded retake attempts are fully discarded — they do not
+            # enter the denominator.  Denominator = Credit Counted (one row
+            # per course, best attempt only).  Proven by PDF: 501.7 / 130.0 = 3.86.
         else:
             # All remaining are F — use most recent
             f_att  = cgpa_att[-1]
@@ -202,13 +210,9 @@ def compute_cgpa(
         total_cr  += credits
         per_course_cgpa[code] = (grade, credits, gp)
 
-    # NSU policy: CGPA denominator = fixed Credit Counted base (130/120), not credits-attempted
-    denom = float(PROGRAM_BASE_CREDITS.get(program_key, 0)) if program_key else None
-    if denom and denom > 0:
-        cgpa = round(total_pts / denom, 2)
-    else:
-        denom = total_cr
-        cgpa  = round(total_pts / total_cr, 2) if total_cr > 0 else 0.0
+    # NSU policy: denominator = Credit Counted (best attempt per course only)
+    denom = total_cr
+    cgpa  = round(total_pts / denom, 2) if denom > 0 else 0.0
 
     return cgpa, total_pts, denom, per_course_cgpa
 
@@ -270,7 +274,7 @@ def print_report(
         print(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f}"))
     cgpa_flag = "✓ MET (≥ 2.0)" if cgpa_ok else "✗ PROBATION — below 2.0 minimum"
     print(_bline(f"CGPA              :  {cgpa:.2f}   [{class_eq}]   [{cgpa_flag}]"))
-    print(_bline(f"Grade Points      :  {total_gp:.2f}  ÷  {total_cr_attempted:.0f} credits (fixed Credit Counted base)"))
+    print(_bline(f"Grade Points      :  {total_gp:.2f}  ÷  {total_cr_attempted:.1f} Credit Counted"))
     print(_bbot())
     print()
 
@@ -333,8 +337,8 @@ def print_report(
     print()
     print(_btop())
     print(_bline(f"Total Grade Points           :  {total_gp:.2f}"))
-    print(_bline(f"Credits Attempted (denom.)   :  {total_cr_attempted:.0f}  "
-                 "(fixed Credit Counted base — NSU graduation policy)"))
+    print(_bline(f"Credit Counted (denom.)      :  {total_cr_attempted:.1f}  "
+                 "(best attempt per course; denominator = Credit Counted)"))
     print(_bline(f"CGPA                         :  {cgpa:.2f}   ({class_eq})"))
     standing = ("⚠  PROBATION — CGPA is below the 2.0 minimum required for graduation"
                 if cgpa < 2.0 else class_eq)

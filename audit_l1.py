@@ -1176,8 +1176,6 @@ def main() -> int:
         cse_excl = resolve_cse_choice_groups(rows)
         core_excluded = core_excluded | cse_excl
         allowed_codes = allowed_codes - cse_excl
-        core_excluded = core_excluded | cse_excl
-        allowed_codes = allowed_codes - cse_excl
 
     all_elective_candidates: Set[str] = (
         {c for trail in CSE_TRAILS.values() for c in trail} if program_key=="CSE"
