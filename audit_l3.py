@@ -30,6 +30,7 @@ from audit_l1 import (
     _TTOP, _TROW_SEP, _TBOT, _THDR, _trow, _tsep,
     normalize_course_code,
     CSE_TRAILS, CSE_GED_CHOICE_GROUPS, CSE_INTERNSHIP_RESEARCH, CSE_MINOR_COURSES,
+    CSE_MINOR_MATH, CSE_MINOR_PHYSICS,
     MIC_ALIAS_PAIRS, MIC_LANGUAGE_CHOICES, MIC_HUMANITIES_CHOICES,
     MIC_SOCIAL_CHOICES, MIC_SCIENCE_CHOICES, MIC_REQUIRED_CATEGORIES,
     get_ncl_labs,
@@ -41,7 +42,12 @@ from audit_l2 import (
 )
 
 # Optional minor courses (not mandatory for graduation)
-CSE_MINOR_COURSES_ALL: Set[str] = {"MAT370","MAT480","MAT485","PHY230","PHY240","PHY250","PHY260"}
+CSE_MINOR_COURSES_ALL: Set[str] = {
+    # Minor in Math (additional beyond School Core)
+    "MAT370","MAT480","MAT481","MAT482","MAT483","MAT485",
+    # Minor in Physics
+    "PHY230","PHY240","PHY250","PHY260","PHY310","PHY440",
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Deficiency computation

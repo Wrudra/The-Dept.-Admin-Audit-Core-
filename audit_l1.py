@@ -127,9 +127,9 @@ NSU_CATALOG: Set[str] = {
     # MIC electives not previously listed
     "MIC416","MIC417","MIC418","MIC498",
     # Minor in Math additional courses
-    "MAT370","MAT485",
+    "MAT370","MAT480","MAT481","MAT482","MAT483","MAT485",
     # Minor in Physics courses
-    "PHY230","PHY240","PHY250","PHY260",
+    "PHY230","PHY240","PHY250","PHY260","PHY310","PHY440",
     "PHI101","PHI104","PHI401","PHR110","PHR112","PHR113","PHR114","PHR114L","PHR120","PHR120L",
     "PHR121","PHR122","PHR122L","PHR123","PHR124","PHR124L","PHR210","PHR210L","PHR211","PHR211L",
     "PHR212","PHR212L","PHR213","PHR214","PHR215","PHR215L","PHR221","PHR221L","PHR222","PHR222L",
@@ -214,6 +214,20 @@ CSE_PREREQS: dict[str, list] = {
     "CSE299":  [frozenset({"CREDITS_60"})],
     "CSE499A": [frozenset({"CREDITS_100"})],
     "CSE499B": [frozenset({"CSE499A"})],
+    # Minor in Mathematics — all additional courses require MAT250
+    "MAT370":  [frozenset({"MAT250"})],
+    "MAT480":  [frozenset({"MAT250"})],
+    "MAT481":  [frozenset({"MAT250"})],
+    "MAT482":  [frozenset({"MAT250"})],
+    "MAT483":  [frozenset({"MAT250"})],
+    "MAT485":  [frozenset({"MAT250"})],
+    # Minor in Physics — base courses require PHY108; upper-level require PHY250
+    "PHY230":  [frozenset({"PHY108"})],
+    "PHY240":  [frozenset({"PHY108"})],
+    "PHY250":  [frozenset({"PHY108"})],
+    "PHY260":  [frozenset({"PHY108"})],
+    "PHY310":  [frozenset({"PHY250"})],
+    "PHY440":  [frozenset({"PHY250"})],
 }
 
 MIC_PREREQS: dict[str, list] = {
@@ -301,7 +315,11 @@ PROGRAM_BASE_CREDITS: dict[str,int] = {"CSE":130,"MIC":120}
 WAIVERABLE_COURSES = frozenset({"ENG102","MAT112"})
 WAIVER_CREDITS_EACH = 3
 CSE_INTERNSHIP_RESEARCH = frozenset({"CSE498R","CSE498I"})
-CSE_MINOR_COURSES: Set[str] = {"MAT370","MAT480","MAT485","PHY230","PHY240","PHY250","PHY260"}
+# Minor in Math — additional courses beyond School Core (MAT120/125/130/250 already required)
+CSE_MINOR_MATH:    Set[str] = {"MAT370","MAT480","MAT481","MAT482","MAT483","MAT485"}
+# Minor in Physics — PHY310/PHY440 are a choice (either counts)
+CSE_MINOR_PHYSICS: Set[str] = {"PHY230","PHY240","PHY250","PHY260","PHY310","PHY440"}
+CSE_MINOR_COURSES: Set[str] = CSE_MINOR_MATH | CSE_MINOR_PHYSICS
 
 def get_required_credits_for_waivers(program_key: str, num_waivers: int) -> int:
     base = PROGRAM_BASE_CREDITS.get(program_key, 130)
@@ -392,11 +410,57 @@ def valid_credits_for_course(attempts: list[dict]) -> float:
     best = max(passing, key=lambda a: GRADE_RANK.get(a["grade"], 0))
     return best["credits"]
 
-def build_passed_set(rows: list[dict]) -> Set[str]:
+def build_passed_set(
+    rows: list[dict],
+    prereq_map: Optional[dict[str,list]] = None,
+    waived_courses: Optional[Set[str]] = None,
+    earned_credits: float = 0.0,
+) -> Set[str]:
+    """
+    Build the set of courses the student genuinely passed, propagating
+    prerequisite failures transitively.
+
+    Without a prereq_map: simple grade-based set (original behaviour).
+    With a prereq_map: runs iterative rounds until stable:
+      Round 1: collect all courses with a passing grade
+      Round N: remove any course whose prereq is no longer in the valid set
+    This ensures MAT250 is invalidated when MAT130 is invalid,
+    and MAT370/480/481+ are invalidated when MAT250 is invalid, etc.
+    """
     seen: dict[str,list[dict]] = {}
     for r in rows:
         seen.setdefault(normalize_course_code(r["course_code"]),[]).append(r)
-    return {code for code, att in seen.items() if has_passing_attempt(att)}
+
+    # Start with every course that has a passing grade attempt
+    valid: Set[str] = {code for code, att in seen.items() if has_passing_attempt(att)}
+
+    if not prereq_map:
+        return valid
+
+    # Waived courses count as implicitly passed for prereq checking
+    _waived = {normalize_course_code(c) for c in (waived_courses or set())}
+    effective = valid | _waived
+
+    # Iteratively remove courses whose prereqs are no longer satisfied.
+    # Use earned_credits=inf so CREDITS_60/CREDITS_100 thresholds never falsely
+    # invalidate courses during propagation — those are checked separately in
+    # compute_total_valid_credits with the real baseline credit total.
+    while True:
+        to_remove: Set[str] = set()
+        for code in list(valid):
+            ok, _ = prereq_satisfied(
+                code, effective - {code}, prereq_map,
+                waived_courses=waived_courses,
+                earned_credits=float("inf"),   # ignore credit-threshold prereqs here
+            )
+            if not ok:
+                to_remove.add(code)
+        if not to_remove:
+            break
+        valid -= to_remove
+        effective = valid | _waived
+
+    return valid
 
 def prereq_satisfied(
     course: str,
@@ -966,10 +1030,12 @@ def select_electives_cse(
         if normalize_course_code(c) not in _waived
         and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED
-        and (c in all_trail_codes or c not in (allowed_codes or set()))
+        and (c in all_trail_codes
+             or c not in (allowed_codes or set())
+             or normalize_course_code(c) in CSE_MINOR_COURSES)
     ])
     if open_preview:
-        print(f"\n    [Open Elective candidates — trail courses + outside-curriculum NSU courses]")
+        print(f"\n    [Open Elective candidates — trail courses + outside-curriculum NSU courses + minor courses]")
         for c in open_preview: print(f"      {_course_display(c,rows)}")
     print()
 
@@ -1007,7 +1073,9 @@ def select_electives_cse(
         and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED
         and c not in set(major_electives)
-        and (c in all_trail_codes or c not in (allowed_codes or set()))
+        and (c in all_trail_codes
+             or c not in (allowed_codes or set())
+             or normalize_course_code(c) in CSE_MINOR_COURSES)
     ])
     if open_pool:
         print("\nSelect your OPEN ELECTIVE (unselected trail + outside-curriculum NSU courses):")
@@ -1082,20 +1150,85 @@ def print_elective_summary(
     open_elective: str,
     program_key: str,
     free_electives: Optional[list[str]] = None,
+    rows: Optional[list[dict]] = None,
+    prereq_failures: Optional[dict] = None,
 ) -> None:
     print()
     print(_btop())
     print(_bline("SELECTED ELECTIVES  (included in credit tally)"))
     print(_bsep())
+    _pf = {normalize_course_code(c) for c in (prereq_failures or {}).keys()}
     for code in major_electives:
-        print(_bline(f"  ▸ {code}   [Major Elective]"))
+        warn = "  ⚠ prereq not met — will NOT count" if normalize_course_code(code) in _pf else ""
+        print(_bline(f"  ▸ {code}   [Major Elective]{warn}"))
     for code in (free_electives or []):
-        print(_bline(f"  ▸ {code}   [Free Elective]"))
+        warn = "  ⚠ prereq not met — will NOT count" if normalize_course_code(code) in _pf else ""
+        print(_bline(f"  ▸ {code}   [Free Elective]{warn}"))
     if open_elective:
+        open_n = normalize_course_code(open_elective)
+        open_minor_tag = ""
+        if open_n in CSE_MINOR_MATH:
+            open_minor_tag = "  ★ Minor in Math"
+        elif open_n in CSE_MINOR_PHYSICS:
+            open_minor_tag = "  ★ Minor in Physics"
         label = "Free Elective" if program_key=="MIC" else "Open Elective"
-        print(_bline(f"  ▸ {open_elective}   [{label}]"))
+        warn = "  ⚠ prereq not met — will NOT count" if open_n in _pf else ""
+        print(_bline(f"  ▸ {open_elective}   [{label}]{open_minor_tag}{warn}"))
     print(_bbot())
     print()
+
+    # ── Minor Program box (CSE only) ─────────────────────────────────────────
+    if program_key == "CSE" and rows is not None:
+        # Exclude prereq-failed courses — they don't count toward credits
+        # so they cannot count toward minor completion either.
+        _pf_minor = {normalize_course_code(c) for c in (_pf or set())}
+        taken_norm = {normalize_course_code(r["course_code"]) for r in rows
+                      if r.get("grade") not in ("W","I","F",None)
+                      and normalize_course_code(r["course_code"]) not in _pf_minor}
+        math_taken    = sorted(taken_norm & CSE_MINOR_MATH)
+        physics_taken = sorted(taken_norm & CSE_MINOR_PHYSICS)
+
+        if math_taken or physics_taken:
+            open_n = normalize_course_code(open_elective) if open_elective else ""
+            print(_btop())
+            print(_bline("MINOR PROGRAM(S) DETECTED"))
+            print(_bsep())
+
+            if math_taken:
+                # School Core courses already required — they're prereqs not extras
+                MATH_CORE = {"MAT120","MAT125","MAT130","MAT250"}
+                needed_extra = 3   # need 3 additional beyond school core
+                extras = [c for c in math_taken if c not in MATH_CORE]
+                complete = len(extras) >= needed_extra
+                status = "✓ COMPLETE" if complete else f"IN PROGRESS  ({len(extras)}/{needed_extra} additional courses done)"
+                print(_bline(f"  Minor in Mathematics (21 credits)   —   {status}"))
+                print(_bline(f"  School Core (already required): MAT120, MAT125, MAT130, MAT250"))
+                print(_bline(f"  Additional courses taken: {', '.join(extras) if extras else 'none yet'}"))
+                if open_n in CSE_MINOR_MATH:
+                    print(_bline(f"  ★ {open_elective} counted as Open Elective toward graduation"))
+                if physics_taken:
+                    print(_bsep())
+
+            if physics_taken:
+                PHYS_CHOICE = {"PHY310","PHY440"}
+                needed_extra = 4   # PHY230/240/250/260 + one of PHY310/PHY440
+                has_choice = bool(taken_norm & PHYS_CHOICE)
+                base_done  = [c for c in physics_taken if c not in PHYS_CHOICE]
+                choice_done = [c for c in physics_taken if c in PHYS_CHOICE]
+                total_done = len(base_done) + (1 if has_choice else 0)
+                complete = total_done >= 5  # PHY230+240+250+260 + one choice = 5
+                status = "✓ COMPLETE" if complete else f"IN PROGRESS  ({total_done}/5 courses done)"
+                print(_bline(f"  Minor in Physics (15 credits)   —   {status}"))
+                print(_bline(f"  Courses taken: {', '.join(physics_taken)}"))
+                if choice_done:
+                    print(_bline(f"  Elective slot (PHY310 or PHY440): {choice_done[0]} ✓"))
+                else:
+                    print(_bline(f"  Elective slot (PHY310 or PHY440): not yet taken"))
+                if open_n in CSE_MINOR_PHYSICS:
+                    print(_bline(f"  ★ {open_elective} counted as Open Elective toward graduation"))
+
+            print(_bbot())
+            print()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Main
@@ -1184,14 +1317,14 @@ def main() -> int:
 
     major_electives, open_elective, free_electives = select_electives(
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses)
-    print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives)
+    print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives, rows=rows)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = allowed_codes | all_selected
     unselected_electives = all_elective_candidates - all_selected
 
     pkey       = program_key
     prereq_map = CSE_PREREQS if pkey=="CSE" else MIC_PREREQS
-    passed_set = build_passed_set(rows)
+    passed_set = build_passed_set(rows, prereq_map=prereq_map, waived_courses=waived_courses)
     baseline   = compute_baseline_credits(rows, allowed_codes, credits_by_program, pkey)
 
     total, per_course, by_course, prereq_failures = compute_total_valid_credits(

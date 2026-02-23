@@ -406,13 +406,12 @@ def run_audit(args) -> dict:
 
     major_electives, open_elective, free_electives = select_electives(
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses)
-    print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = allowed_codes | all_selected
     unselected_electives = all_elective_candidates - all_selected
 
     prereq_map = CSE_PREREQS if program_key=="CSE" else MIC_PREREQS
-    passed_set = build_passed_set(rows)
+    passed_set = build_passed_set(rows, prereq_map=prereq_map, waived_courses=waived_courses)
     baseline   = compute_baseline_credits(rows, allowed_codes, credits_by_program, program_key)
 
     total, per_course, by_course, prereq_failures = compute_total_valid_credits(
@@ -420,6 +419,11 @@ def run_audit(args) -> dict:
         program_key=program_key, prereq_map=prereq_map, passed_set=passed_set,
         waived_courses=waived_courses, earned_credits=baseline,
     )
+
+    # Print elective summary AFTER prereq computation so it can warn about blocked selections
+    print_elective_summary(major_electives, open_elective, program_key,
+                           free_electives=free_electives, rows=rows,
+                           prereq_failures=prereq_failures)
 
     cgpa, total_gp, total_cr_attempted, per_course_cgpa = compute_cgpa(
         rows, allowed_codes=allowed_codes, program_key=program_key,

@@ -136,26 +136,26 @@ _11 Theory & 1 Lab Course_
 
 _13 Theory & 4 Lab Courses_
 
-| Course       | Credits | Prerequisites    | Notes                        |
-| ------------ | ------- | ---------------- | ---------------------------- |
+| Course       | Credits | Prerequisites    | Notes                            |
+| ------------ | ------- | ---------------- | -------------------------------- |
 | MAT 112      | 3       | None             | Waiverable (see Important Notes) |
 | MAT 116      | 0       | None             | Not counted in CGPA; prereq only |
-| MAT 120      | 3       | MAT 116          |                     |
-| MAT 125      | 3       | MAT 116          |                     |
-| MAT 130      | 3       | MAT 120          |                     |
-| MAT 250      | 3       | MAT 130          |                     |
-| MAT 350      | 3       | MAT 250          |                     |
-| MAT 361      | 3       | MAT 250          |                     |
-| PHY 107      | 3       | MAT 120          |                     |
-| **PHY 107L** | **1**   | MAT 120          | **Lab**             |
-| PHY 108      | 3       | MAT 130, PHY 107 |                     |
-| **PHY 108L** | **1**   | MAT 130, PHY 107 | **Lab**             |
-| CHE 101      | 3       | MAT 350          |                     |
-| **CHE 101L** | **1**   | None             | **Lab**             |
-| EEE 452      | 3       | None             |                     |
-| EEE 154      | 1       | None             | Theory (1 credit)   |
-| CSE 115      | 3       | None             |                     |
-| **CSE 115L** | **1**   | None             | **Lab**             |
+| MAT 120      | 3       | MAT 116          |                                  |
+| MAT 125      | 3       | MAT 116          |                                  |
+| MAT 130      | 3       | MAT 120          |                                  |
+| MAT 250      | 3       | MAT 130          |                                  |
+| MAT 350      | 3       | MAT 250          |                                  |
+| MAT 361      | 3       | MAT 250          |                                  |
+| PHY 107      | 3       | MAT 120          |                                  |
+| **PHY 107L** | **1**   | MAT 120          | **Lab**                          |
+| PHY 108      | 3       | MAT 130, PHY 107 |                                  |
+| **PHY 108L** | **1**   | MAT 130, PHY 107 | **Lab**                          |
+| CHE 101      | 3       | MAT 350          |                                  |
+| **CHE 101L** | **1**   | None             | **Lab**                          |
+| EEE 452      | 3       | None             |                                  |
+| EEE 154      | 1       | None             | Theory (1 credit)                |
+| CSE 115      | 3       | None             |                                  |
+| **CSE 115L** | **1**   | None             | **Lab**                          |
 
 ---
 
@@ -273,11 +273,11 @@ _LO = Last Offered (Semester Code)_
 
 ---
 
-## Minor Programs (Optional)
+## Minor Programs (Optional) and One of the minor courses can be put in Open Elective
 
 ### Minor in Math (21 Credits)
 
-_Only 3 additional courses needed beyond School Core_
+_Only 3 additional courses needed beyond School Core (Finish up to MAT250 for eligibily)_
 
 | Course  | Credits | Notes                  |
 | ------- | ------- | ---------------------- |
@@ -287,19 +287,22 @@ _Only 3 additional courses needed beyond School Core_
 | MAT 250 | 3       | Already in School Core |
 | MAT 370 | 3       | **Additional**         |
 | MAT 480 | 3       | **Additional**         |
+| MAT 481 | 3       | **Additional**         |
+| MAT 482 | 3       | **Additional**         |
+| MAT 483 | 3       | **Additional**         |
 | MAT 485 | 3       | **Additional**         |
 
 ### Minor in Physics (15 Credits)
 
-| Course                | Credits |
-| --------------------- | ------- |
-| PHY 230               | 3       |
-| PHY 240               | 3       |
-| PHY 250               | 3       |
-| PHY 260               | 3       |
-| One additional course | 3       |
+_Finish PHY107 & PHY108 for eligibily_
 
-_Contact DMP for more details_
+| Course           | Credits |
+| ---------------- | ------- |
+| PHY 230          | 3       |
+| PHY 240          | 3       |
+| PHY 250          | 3       |
+| PHY 260          | 3       |
+| PHY 310 / PHY440 | 3       |
 
 ---
 
@@ -310,9 +313,9 @@ _Contact DMP for more details_
 - **Required credits** (CSE) depend on how many of ENG102 and MAT112 are waived:
   | ENG102 waived | MAT112 waived | Required (CSE) |
   | ------------- | ------------- | --------------- |
-  | Yes           | Yes           | 130             |
-  | One only      | One only      | 133             |
-  | No            | No            | 136             |
+  | Yes | Yes | 130 |
+  | One only | One only | 133 |
+  | No | No | 136 |
 - **Credit Counted:** Sum of credits from courses with grades (basis for CGPA). Waived courses are excluded.
 - **Credit Completed:** Credit Counted + 3 per waived course; compared to required credits above.
 - **Minimum CGPA:** 2.0 required for graduation (CGPA is based on Credit Counted only).
@@ -373,12 +376,12 @@ _Choose one_
 
 ### Computer and Math (9 Credits)
 
-| Course | Credits | Prerequisites | Notes     |
-| ------ | ------- | ------------- | --------- |
-| MIS107 | 3       | None          |           |
+| Course | Credits | Prerequisites | Notes      |
+| ------ | ------- | ------------- | ---------- |
+| MIS107 | 3       | None          |            |
 | MAT112 | 3       | None          | Waiverable |
-| MAT116 | 3       | None          |           |
-| BUS172 | 3       | None          |           |
+| MAT116 | 3       | None          |            |
+| BUS172 | 3       | None          |            |
 
 ### Science (4 Credits — Choose one pair)
 
@@ -471,9 +474,9 @@ _Any three courses from NSU curriculum_
 - **Total credits (required)** depend on waivers for ENG102 and MAT112:
   | ENG102 waived | MAT112 waived | Required (MIC) |
   | ------------- | ------------- | --------------- |
-  | Yes           | Yes           | 120             |
-  | One only      | One only      | 123             |
-  | No            | No            | 126             |
+  | Yes | Yes | 120 |
+  | One only | One only | 123 |
+  | No | No | 126 |
 - **Credit Counted:** Credits from courses with grades (basis for CGPA). Waived courses excluded.
 - **Credit Completed:** Credit Counted + 3 per waived course; compared to required credits above.
 - **Minimum CGPA:** 2.0 required for graduation
