@@ -405,7 +405,8 @@ def run_audit(args) -> dict:
     )
 
     major_electives, open_elective, free_electives = select_electives(
-        program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses)
+        program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
+        core_excluded=core_excluded)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = allowed_codes | all_selected
     unselected_electives = all_elective_candidates - all_selected

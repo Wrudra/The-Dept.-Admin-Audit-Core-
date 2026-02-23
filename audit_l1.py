@@ -1006,8 +1006,10 @@ def select_electives_cse(
     rows: list[dict],
     allowed_codes: Optional[Set[str]] = None,
     waived_courses: Optional[Set[str]] = None,
+    core_excluded: Optional[Set[str]] = None,
 ) -> tuple[list[str],str,list[str]]:
     _waived = {normalize_course_code(c) for c in (waived_courses or set())}
+    _core_excl = {normalize_course_code(c) for c in (core_excluded or set())}
     taken   = set(_get_taken_courses(rows))
     trail_taken: dict[str,list[str]] = {
         t: [c for c in codes if c in taken]
@@ -1029,6 +1031,7 @@ def select_electives_cse(
         c for c in taken
         if normalize_course_code(c) not in _waived
         and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
+        and normalize_course_code(c) not in _core_excl
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED
         and (c in all_trail_codes
              or c not in (allowed_codes or set())
@@ -1071,6 +1074,7 @@ def select_electives_cse(
         c for c in taken
         if normalize_course_code(c) not in _waived
         and normalize_course_code(c) not in CSE_INTERNSHIP_RESEARCH
+        and normalize_course_code(c) not in _core_excl
         and normalize_course_code(c) in NSU_CATALOG_EXPANDED
         and c not in set(major_electives)
         and (c in all_trail_codes
@@ -1140,8 +1144,11 @@ def select_electives(
     rows: list[dict],
     allowed_codes: Optional[Set[str]] = None,
     waived_courses: Optional[Set[str]] = None,
+    core_excluded: Optional[Set[str]] = None,
 ) -> tuple[list[str],str,list[str]]:
-    if program_key == "CSE": return select_electives_cse(rows,allowed_codes=allowed_codes,waived_courses=waived_courses)
+    if program_key == "CSE": return select_electives_cse(rows, allowed_codes=allowed_codes,
+                                                          waived_courses=waived_courses,
+                                                          core_excluded=core_excluded)
     if program_key == "MIC": return select_electives_mic(rows)
     return [],"",[],
 
@@ -1316,7 +1323,8 @@ def main() -> int:
     )
 
     major_electives, open_elective, free_electives = select_electives(
-        program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses)
+        program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
+        core_excluded=core_excluded)
     print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives, rows=rows)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = allowed_codes | all_selected
