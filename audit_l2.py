@@ -290,6 +290,33 @@ def print_report(
     counted  = [(c,cr) for c,cr in sorted(per_course.items()) if cr>0  and normalize_course_code(c) not in ncl]
     excluded = [(c,cr) for c,cr in sorted(per_course.items()) if cr==0 and normalize_course_code(c) not in ncl]
 
+    # Retake ghosts: individual non-counting attempts for courses that ARE counted.
+    # Covers F/W/I attempts before a passing retake, and lower-grade passing
+    # attempts superseded by a better grade.  Each surfaces as its own row so
+    # the admin can see the full attempt history without digging into raw CSV.
+    _retake_ghosts: list[tuple[str,str,str]] = []  # (code, attempt_grade, reason)
+    for code in sorted(per_course):
+        n = normalize_course_code(code)
+        if per_course[code] == 0 or n in ncl:
+            continue  # already in excluded, or NCL — never displayed
+        attempts = by_course.get(code, [])
+        if len(attempts) <= 1:
+            continue  # single attempt — nothing to surface
+        passing = [a for a in attempts if is_passing(a["grade"])]
+        best    = max(passing, key=lambda a: GRADE_RANK.get(a["grade"], 0)) if passing else None
+        best_gr = best["grade"] if best else "—"
+        for a in attempts:
+            if a is best:
+                continue
+            if is_passing(a["grade"]):
+                _retake_ghosts.append((code, a["grade"],
+                    f"superseded by retake — {best_gr} counts"))
+            else:
+                _label = {"F": "failure (F)", "W": "withdrawal (W)",
+                          "I": "incomplete (I)"}.get(a["grade"], f"grade {a['grade']}")
+                _retake_ghosts.append((code, a["grade"],
+                    f"{_label} — passed on retake ({best_gr})"))
+
     print("  Courses counted toward graduation:")
     print(_TTOP); print(_THDR); print(_TROW_SEP)
     for code, cr in counted:
@@ -298,9 +325,10 @@ def print_report(
     print(_TBOT)
     print()
 
-    if excluded:
+    if excluded or _retake_ghosts:
         print("  Courses not counted (0 credits):")
         print(_TTOP); print(_THDR); print(_TROW_SEP)
+        _nc_rows: list[tuple[str,str,str]] = []
         for code, _ in excluded:
             grade  = get_display_grade(by_course[code])
             reason = reason_not_counted(
@@ -310,6 +338,10 @@ def print_report(
                 unselected_electives=unselected_electives, waived_courses=waived_courses,
                 prereq_failure=(prereq_failures or {}).get(normalize_course_code(code)),
             )
+            _nc_rows.append((code, grade, reason))
+        for code, grade, reason in _retake_ghosts:
+            _nc_rows.append((code, grade, reason))
+        for code, grade, reason in sorted(_nc_rows, key=lambda x: x[0]):
             print(_trow(code, "—", grade, reason))
         print(_TBOT)
         print()
