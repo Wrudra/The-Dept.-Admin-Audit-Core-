@@ -238,6 +238,7 @@ _3 courses required: minimum 2 from one trail, 1 from another_
 - CSE 435 (3 credits, NCL)
 - CSE 413 (3 credits, NCL)
 - CSE 414 (3 credits, NCL, LO 211)
+- CSE 495A (3 credits)
 
 **Artificial Intelligence Trail**
 
@@ -246,6 +247,7 @@ _3 courses required: minimum 2 from one trail, 1 from another_
 - CSE 465 (3 credits)
 - CSE 467 (3 credits, LO 213)
 - CSE 419 / CSE 598 (3 credits)
+- CSE 495B (3 credits)
 
 **Bioinformatics Trail**
 

@@ -158,8 +158,8 @@ CSE_TRAILS: dict[str, list[str]] = {
     "Algorithms and Computation": ["CSE257","CSE417","CSE326","CSE426","CSE273","CSE473"],
     "Software Engineering":       ["CSE411"],
     "Networks":                   ["CSE422","CSE562","CSE338","CSE438","CSE482","CSE485","CSE486"],
-    "Computer Architecture & VLSI": ["CSE435","CSE413","CSE414"],
-    "Artificial Intelligence":    ["CSE440","CSE445","CSE465","CSE467","CSE419","CSE598"],
+    "Computer Architecture & VLSI": ["CSE435","CSE413","CSE414","CSE495A"],
+    "Artificial Intelligence":    ["CSE440","CSE445","CSE465","CSE467","CSE419","CSE598","CSE495B"],
 }
 
 MIC_ELECTIVES: list[str] = ["MIC201","MIC318","MIC404","MIC311","MIC309","MIC416","MIC417","MIC418"]
@@ -760,16 +760,62 @@ def resolve_mic_aliases(rows: list[dict]) -> dict[str,str]:
         elif pb and a in by_course and not pa: exclusions[a] = b
     return exclusions
 
+# GED group labels — shown in the prompt header
+_GED_GROUP_LABELS: list[str] = [
+    "Politics / Government",
+    "Economics",
+    "Society / Environment",
+]
+
 def resolve_cse_choice_groups(rows: list[dict]) -> set[str]:
+    """
+    For each CSE GED choice group (one slot, pick exactly ONE course):
+      - If the student passed only one course from the group → auto-select, no prompt.
+      - If they passed multiple → prompt the admin to choose which one counts.
+        In NO_INTERACT mode, auto-select the highest-grade one (ties → first in group list).
+    Returns: set of course codes to EXCLUDE from the credit tally.
+    """
     by_course: dict[str,list[dict]] = {}
     for r in rows:
         by_course.setdefault(normalize_course_code(r["course_code"]),[]).append(r)
+
     excluded: set[str] = set()
-    for group in CSE_GED_CHOICE_GROUPS:
-        passed = [c for c in group if c in by_course and has_passing_attempt(by_course[c])]
-        if len(passed) > 1:
-            best = max(passed, key=lambda c: GRADE_RANK.get(get_display_grade(by_course[c]),0))
-            excluded.update(c for c in passed if c != best)
+
+    print()
+    print(_btop())
+    print(_bline("CSE GED / UNIVERSITY CORE — CHOICE SLOT RESOLUTION"))
+    print(_bline("Each group below is ONE slot.  Only the chosen course counts toward credits."))
+    print(_bsep())
+
+    for group, label in zip(CSE_GED_CHOICE_GROUPS, _GED_GROUP_LABELS):
+        passed = sorted(
+            [c for c in group if c in by_course and has_passing_attempt(by_course[c])],
+            key=lambda c: GRADE_RANK.get(get_display_grade(by_course[c]), 0),
+            reverse=True,  # best grade first → auto-mode picks highest grade
+        )
+        if len(passed) == 0:
+            print(_bline(f"  [{label}]  No passing course found — slot unfilled."))
+        elif len(passed) == 1:
+            print(_bline(f"  [{label}]  {passed[0]}  ({get_display_grade(by_course[passed[0]])})"
+                         f"  — only option, auto-selected."))
+        else:
+            # Multiple passed — prompt
+            print(_bbot())
+            print()
+            print(f"  [{label}]  Student passed multiple courses — pick ONE to count:")
+            display = [
+                f"{c:<10}  (grade: {get_display_grade(by_course[c])})"
+                for c in passed
+            ]
+            chosen = _prompt_pick("", passed, display=display)
+            excluded.update(c for c in passed if c != chosen)
+            print()
+            print(_btop())
+            print(_bline(f"  [{label}]  {chosen}  ({get_display_grade(by_course[chosen])})"
+                         f"  — selected.  Others excluded: {', '.join(sorted(set(passed)-{chosen}))}"))
+
+    print(_bbot())
+    print()
     return excluded
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1128,11 +1174,8 @@ def main() -> int:
 
     if program_key == "CSE":
         cse_excl = resolve_cse_choice_groups(rows)
-        if cse_excl:
-            print("\n  CSE GED choice resolution (one course per slot):")
-            for c in sorted(cse_excl):
-                print(f"    {c} excluded — a higher-grade course fills the same slot.")
-            print()
+        core_excluded = core_excluded | cse_excl
+        allowed_codes = allowed_codes - cse_excl
         core_excluded = core_excluded | cse_excl
         allowed_codes = allowed_codes - cse_excl
 
