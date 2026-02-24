@@ -30,7 +30,6 @@ from audit_l1 import (
     _TTOP, _TROW_SEP, _TBOT, _THDR, _trow, _tsep,
     normalize_course_code,
     CSE_TRAILS, CSE_GED_CHOICE_GROUPS, CSE_INTERNSHIP_RESEARCH, CSE_MINOR_COURSES,
-    CSE_MINOR_MATH, CSE_MINOR_PHYSICS,
     MIC_ALIAS_PAIRS, MIC_LANGUAGE_CHOICES, MIC_HUMANITIES_CHOICES,
     MIC_SOCIAL_CHOICES, MIC_SCIENCE_CHOICES, MIC_REQUIRED_CATEGORIES,
     get_ncl_labs,
@@ -41,13 +40,6 @@ from audit_l2 import (
     print_report,
 )
 
-# Optional minor courses (not mandatory for graduation)
-CSE_MINOR_COURSES_ALL: Set[str] = {
-    # Minor in Math (additional beyond School Core)
-    "MAT370","MAT480","MAT481","MAT482","MAT483","MAT485",
-    # Minor in Physics
-    "PHY230","PHY240","PHY250","PHY260","PHY310","PHY440",
-}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Deficiency computation
@@ -83,17 +75,20 @@ def compute_deficiencies(result: dict) -> dict:
 
     missing_mandatory: list[tuple[str,list[str]]] = []
 
+    prereq_failed_n = {normalize_course_code(c) for c in (prereq_failures or {}).keys()}
+
     if program_key == "CSE":
         cse_codes   = program_codes.get("CSE") or set()
         all_trail   = {c for trail in CSE_TRAILS.values() for c in trail}
         choice_codes= {c for group in CSE_GED_CHOICE_GROUPS for c in group}
         ncl         = get_ncl_labs("CSE")
         required_single = (cse_codes - all_trail - choice_codes
-                           - CSE_INTERNSHIP_RESEARCH - ncl - CSE_MINOR_COURSES_ALL)
+                           - CSE_INTERNSHIP_RESEARCH - ncl - CSE_MINOR_COURSES)
         missing_single = sorted(
             normalize_course_code(c) for c in required_single
             if normalize_course_code(c) not in waived_n
             and normalize_course_code(c) not in passed_set
+            and normalize_course_code(c) not in prereq_failed_n  # already in prereq_failures
         )
         if missing_single:
             missing_mandatory.append(("Required core courses", missing_single))
@@ -128,7 +123,7 @@ def compute_deficiencies(result: dict) -> dict:
                 satisfied.add(theory); satisfied.add(lab)
 
         required_all = set().union(*MIC_REQUIRED_CATEGORIES.values())
-        missing_codes = required_all - satisfied
+        missing_codes = required_all - satisfied - prereq_failed_n  # prereq failures listed separately
         if missing_codes:
             by_cat: dict[str,list[str]] = {}
             for cat, codes in MIC_REQUIRED_CATEGORIES.items():
@@ -213,9 +208,12 @@ def print_deficiency_report(result: dict, deficiencies: dict) -> None:
                         chunk = "      " + item
                 if chunk: print(_bline(chunk))
 
-        # Prerequisite failures
-        for course, reason in deficiencies["prereq_failures_list"]:
-            print(_bline(f"  ▸ Prereq not met [{course}]  :  {reason}"[:_BW - 2]))
+        # Prerequisite failures — course first, strip redundant prefix
+        if deficiencies["prereq_failures_list"]:
+            print(_bline("  ▸ Prerequisite failures:"))
+            for course, reason in deficiencies["prereq_failures_list"]:
+                detail = reason.removeprefix("prereq not met: ")
+                print(_bline(f"      {course}  —  needs: {detail}"[:_BW - 2]))
 
     print(_bsep())
     print(_bline(f"  {deficiencies['retake_note']}"))

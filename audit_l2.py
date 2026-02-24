@@ -20,6 +20,7 @@ Usage: python3 audit_l2.py transcript.csv program_name program_knowledge.md [--n
 import argparse
 import re
 import sys
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Optional, Set
 
@@ -212,7 +213,7 @@ def compute_cgpa(
 
     # NSU policy: denominator = Credit Counted (best attempt per course only)
     denom = total_cr
-    cgpa  = round(total_pts / denom, 2) if denom > 0 else 0.0
+    cgpa  = float(Decimal(str(total_pts / denom)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if denom > 0 else 0.0
 
     return cgpa, total_pts, denom, per_course_cgpa
 
@@ -346,27 +347,7 @@ def print_report(
         print(_TBOT)
         print()
 
-    # ── CGPA breakdown table ──────────────────────────────────────────────────
-    _CGP = 10   # col width for Pts/Cr
-    _CEP = 14   # col width for Grade Points earned
-    def _csep2(l='├',m='┼',r='┤'):
-        return (f"  {l}"+"─"*(_CC+2)+m+"─"*(_CCR+2)+m+"─"*(_CG+2)+m
-                +"─"*(_CGP+2)+m+"─"*(_CEP+2)+r)
 
-    cgpa_hdr = (f"  │ {'Course':<{_CC}} │ {'Credits':>{_CCR}} │ "
-                f"{'Grade':<{_CG}} │ {'GP/Credit':>{_CGP}} │ {'Grade Points':>{_CEP}} │")
-
-    print("  CGPA Breakdown — courses contributing to weighted GPA:")
-    print(_csep2('┌','┬','┐'))
-    print(cgpa_hdr)
-    print(_csep2())
-    for code, (grade, credits, gp) in sorted(per_course_cgpa.items()):
-        earned = gp * credits
-        print(f"  │ {code:<{_CC}} │ {credits:>{_CCR}.1f} │ {grade:<{_CG}} │ "
-              f"{gp:>{_CGP}.1f} │ {earned:>{_CEP}.2f} │")
-    print(_csep2('└','┴','┘'))
-
-    print()
     print(_btop())
     print(_bline(f"Total Grade Points           :  {total_gp:.2f}"))
     print(_bline(f"Credit Counted (denom.)      :  {total_cr_attempted:.1f}  "
@@ -436,11 +417,11 @@ def run_audit(args) -> dict:
         else set(MIC_ELECTIVES)
     )
 
-    major_electives, open_elective, free_electives = select_electives(
+    major_electives, open_elective, free_electives, trail_alias_excl = select_electives(
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
         core_excluded=core_excluded)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
-    allowed_codes = allowed_codes | all_selected
+    allowed_codes = (allowed_codes | all_selected) - trail_alias_excl  # remove cross-listed alias losers
     unselected_electives = all_elective_candidates - all_selected
 
     prereq_map = CSE_PREREQS if program_key=="CSE" else MIC_PREREQS
@@ -498,7 +479,6 @@ def run_audit(args) -> dict:
 #  Main
 # ══════════════════════════════════════════════════════════════════════════════
 def main() -> int:
-    global NO_INTERACT
     parser = argparse.ArgumentParser(
         description="Level 2: CGPA Engine & Waiver Handler."
     )
