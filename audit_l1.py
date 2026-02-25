@@ -4,7 +4,7 @@ Level 1: Credit Tally Engine
 Reads a student transcript CSV and reports total valid (earned) credits for graduation.
 
 FIXES applied (vs original):
-  #2  MIC498 prerequisite: labs are now an OR-group, not AND (all required).
+  #2  MIC498 prerequisite: all labs are AND-groups — every lab must be passed (not OR).
   #3  Removed dead is_no_credit() function.
   #5  get_ncl_labs(): MIC gets its own empty NCL set; no longer inherits CSE labs.
   #6  Early validation for unsupported program names in main().
@@ -295,11 +295,11 @@ MIC_PREREQS: dict[str, list] = {
     "MIC315":  [frozenset({"MIC203"}),frozenset({"MIC202"})],
     "MIC315L": [frozenset({"BIO202L","MIC101L"}),frozenset({"MIC315"})],
     "MIC316":  [frozenset({"MIC307"})],
-    "MIC316L": [frozenset({"BIO202L","MIC101L"}),frozenset({"MIC316"})],
+    "MIC316L": [frozenset({"BIO201L"}),frozenset({"MIC316"})],         # Change 2: needs BIO201L AND MIC316
     "MIC317":  [frozenset({"MIC307"}),frozenset({"MIC315"})],
     "MIC317L": [frozenset({"BIO202L","MIC101L"}),frozenset({"MIC317"})],
     "MIC206":  [frozenset({"MIC316"})],
-    "MIC207":  [frozenset({"MIC316"})],
+    "MIC207":  [frozenset({"MIC203"}),frozenset({"CHE202"})],  # Change 1: needs MIC203 AND CHE202
     "MIC401":  [frozenset({"MIC316"}),frozenset({"MIC309"})],
     "MIC412":  [frozenset({"MIC315"}),frozenset({"MIC316"})],
     "MIC413":  [frozenset({"MIC316"}),frozenset({"MIC317"})],
@@ -308,11 +308,16 @@ MIC_PREREQS: dict[str, list] = {
     "MIC414L": [frozenset({"BIO202L","MIC101L"}),frozenset({"MIC414"})],
     "MIC415":  [frozenset({"MIC202"}),frozenset({"MIC203"})],
     "MIC415L": [frozenset({"BIO202L","MIC101L"}),frozenset({"MIC415"})],
-    # FIX #2: MIC498 requires MIC316 AND at least one qualifying lab (OR-group).
-    # Original code had each lab as a separate AND-group making all labs mandatory.
+    # Change 3: MIC498 requires MIC316 AND ALL lab courses passed.
+    # Each lab is its own AND-group so every one must be completed.
     "MIC498":  [
         frozenset({"MIC316"}),
-        frozenset({"MIC315L","MIC316L","MIC317L","MIC413L","MIC414L","MIC415L"}),
+        frozenset({"MIC315L"}),
+        frozenset({"MIC316L"}),
+        frozenset({"MIC317L"}),
+        frozenset({"MIC413L"}),
+        frozenset({"MIC414L"}),
+        frozenset({"MIC415L"}),
     ],
     "MIC201":  [frozenset({"BIO202","MIC101"})],
     "MIC309":  [frozenset({"MIC203"}),frozenset({"MIC207"})],

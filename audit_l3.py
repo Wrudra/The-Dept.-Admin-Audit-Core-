@@ -125,10 +125,33 @@ def compute_deficiencies(result: dict) -> dict:
         required_all = set().union(*MIC_REQUIRED_CATEGORIES.values())
         missing_codes = required_all - satisfied - prereq_failed_n  # prereq failures listed separately
         if missing_codes:
-            by_cat: dict[str,list[str]] = {}
+            # Change 4: consolidate choice-group alternatives into "A/B" notation so the
+            # deficiency report shows one slot ("BEN205/ENG111") rather than two lines.
+            _CHOICE_GROUPS: list[list[str]] = (
+                [list(MIC_LANGUAGE_CHOICES), list(MIC_HUMANITIES_CHOICES), list(MIC_SOCIAL_CHOICES)]
+                + [[a, b] for a, b in MIC_ALIAS_PAIRS]
+                + [[t, l] for t, l in MIC_SCIENCE_CHOICES]
+            )
+            def _consolidate_mic(codes_set: set) -> list[str]:
+                shown: set = set()
+                result: list[str] = []
+                for grp in _CHOICE_GROUPS:
+                    overlap = [c for c in grp if c in codes_set and c not in shown]
+                    if len(overlap) > 1:
+                        result.append("/".join(overlap))   # e.g. "BEN205/ENG111"
+                        shown.update(overlap)
+                    elif len(overlap) == 1:
+                        result.append(overlap[0])
+                        shown.update(overlap)
+                for c in sorted(codes_set - shown):
+                    result.append(c)
+                return result
+
+            by_cat: dict[str, list[str]] = {}
             for cat, codes in MIC_REQUIRED_CATEGORIES.items():
-                m = sorted(c for c in codes if c in missing_codes)
-                if m: by_cat[cat] = m
+                m_set = {c for c in codes if c in missing_codes}
+                if m_set:
+                    by_cat[cat] = _consolidate_mic(m_set)
             for cat, codes in sorted(by_cat.items()):
                 missing_mandatory.append((cat, codes))
 

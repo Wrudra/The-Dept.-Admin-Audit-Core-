@@ -455,7 +455,7 @@ _Choose one pair (A or B) — both theory and lab must be completed._
 | MIC315      | 3       | MIC203, MIC202          |
 | **MIC315L** | **1**   | BIO202L, MIC315         |
 | MIC316      | 3       | MIC307                  |
-| **MIC316L** | **1**   | MIC201L, MIC316         |
+| **MIC316L** | **1**   | BIO201L, MIC316         |
 | MIC317      | 3       | MIC307, MIC315          |
 | **MIC317L** | **1**   | BIO202L, MIC317         |
 | MIC401      | 3       | MIC316, MIC309          |
