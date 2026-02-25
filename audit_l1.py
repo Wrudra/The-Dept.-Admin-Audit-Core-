@@ -1148,7 +1148,7 @@ def select_electives_cse(
     eligible_primary = [t for t,c in trail_taken.items() if len(c)>=2] or list(trail_taken.keys())
     if not eligible_primary:
         print("  No elective courses found in transcript for CSE trails.")
-        return [],"",[],
+        return [],"",[], _trail_alias_excl
 
     primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses):", eligible_primary)
     primary_pool = trail_taken[primary_name]
