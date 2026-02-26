@@ -14,6 +14,11 @@ FIXES applied (vs original):
       lists a different credit value than program.md defines, a warning banner is
       printed and the program-defined credit is used (as it always was, silently).
       Applies to both CSE and MIC.  NCL (0-credit) labs are exempt from the check.
+  #14 detect_credit_mismatches(): used the first-occurrence credit per course,
+      so a retake row carrying a wrong credit was invisible when the earlier
+      attempt had the correct credit (e.g. CSE173 C+/3cr then A/80cr → only
+      80cr row matters but 3cr was seen first).  Fixed to use the best-passing-
+      attempt credit, mirroring the credit engine's own selection logic.
 
 Usage: python3 audit_l1.py transcript.csv program_name program_knowledge.md [--no-interact]
 """
@@ -688,16 +693,28 @@ def detect_credit_mismatches(
     prog_cr_map = program_credits.get(program_key, {})
     ncl = get_ncl_labs(program_key)
 
-    # Collect transcript credit per course.
-    # A course may appear multiple times (retakes); credits should be identical
-    # across attempts — if not, use the first non-zero value, else the first.
-    transcript_cr: dict[str, float] = {}
+    # Collect transcript credit per course using the SAME selection logic as the
+    # credit engine: the best passing attempt's credit value wins.
+    # If there are no passing attempts, fall back to the last non-zero credit seen.
+    # FIX #14: the original code used the FIRST occurrence credit, so a retake row
+    # with a wrong credit value was invisible when the earlier attempt had the
+    # correct credit.  e.g. CSE173: C+ (3cr) then A (80cr) → old code saw 3cr ✓,
+    # new code sees the best-passing-attempt credit (80cr) → fires mismatch ✓.
+    by_course: dict[str, list[dict]] = {}
     for r in rows:
-        n = normalize_course_code(r["course_code"])
-        if n not in transcript_cr:
-            transcript_cr[n] = r["credits"]
-        elif transcript_cr[n] == 0.0 and r["credits"] != 0.0:
-            transcript_cr[n] = r["credits"]
+        by_course.setdefault(normalize_course_code(r["course_code"]), []).append(r)
+
+    transcript_cr: dict[str, float] = {}
+    for n, attempts in by_course.items():
+        passing = [a for a in attempts if is_passing(a["grade"])]
+        if passing:
+            best = max(passing, key=lambda a: GRADE_RANK.get(a["grade"], 0))
+            transcript_cr[n] = best["credits"]
+        else:
+            # No passing attempt — use last non-zero credit, else last credit
+            non_zero = [a for a in attempts if a["credits"] != 0.0]
+            ref = non_zero[-1] if non_zero else attempts[-1]
+            transcript_cr[n] = ref["credits"]
 
     mismatches: dict[str, tuple[float, float]] = {}
     for n, t_cr in transcript_cr.items():
@@ -725,7 +742,7 @@ def print_credit_mismatch_warning(mismatches: dict[str, tuple[float, float]]) ->
     print()
     print(_btop())
     print(_bline("⚠  CREDIT MISMATCH — TRANSCRIPT vs PROGRAM DEFINITION"))
-    print(_bline("The courses below have different credit values in the transcript vs program"))
+    print(_bline("The courses below have different credit values in the transcript vs the program knowledge file."))
     print(_bline("Program-defined credits are authoritative and have been used for all calculations."))
     print(_bsep())
     print(_THDR)
@@ -808,8 +825,14 @@ def reason_not_counted(
     if core_excluded and n in core_excluded:
         return "choice slot already filled by a higher-grade course from the same group"
     if unselected_electives and n in unselected_electives:
-        return "elective not selected for this audit — may be re-used in future semesters"
-    if allowed_codes is not None and program_name and course_code:
+        # Course IS a known elective for this program — never show "not part of curriculum".
+        # FIX #13: only show "not selected" if the student actually passed it.
+        # Failed/withdrawn electives fall through to the grade-check below so the
+        # admin sees the real failure reason instead of a misleading "not selected".
+        if has_passing_attempt(attempts):
+            return "elective not selected for this audit — may be re-used in future semesters"
+        # fall through to prereq and grade checks
+    elif allowed_codes is not None and program_name and course_code:
         if n not in allowed_codes:
             if n not in NSU_CATALOG_EXPANDED:
                 return "course not offered by NSU — cannot count toward any program"
