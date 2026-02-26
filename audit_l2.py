@@ -11,6 +11,8 @@ FIXES applied (vs original):
   #8  L2 now imports shared logic from audit_l1 instead of duplicating ~1,000 lines.
   #9  print_report() accepts report_level param; L3 passes 3 to avoid "LEVEL 2" heading.
   #11 compute_cgpa() always normalises waived_courses before comparison.
+  #12 Credit mismatch warning inherited via detect_credit_mismatches /
+      print_credit_mismatch_warning; run_audit() now calls both.
   All L1 fixes (#2 MIC498 prereq, #3 dead code, #5 NCL labs, #6 validation,
                #7 tiebreaker, #10 --no-interact) inherited automatically via import.
 
@@ -52,6 +54,7 @@ from audit_l1 import (
     select_electives, print_elective_summary,
     _prompt_yes_no, _prompt_pick, _course_display, _get_taken_courses,
     get_required_credits_for_waivers,
+    detect_credit_mismatches, print_credit_mismatch_warning,
     NO_INTERACT,
 )
 
@@ -423,6 +426,11 @@ def run_audit(args) -> dict:
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = (allowed_codes | all_selected) - trail_alias_excl  # remove cross-listed alias losers
     unselected_electives = all_elective_candidates - all_selected
+
+    # Credit mismatch check: warn if transcript credits differ from program.md
+    credit_mismatches = detect_credit_mismatches(
+        rows, credits_by_program, program_key, allowed_codes=allowed_codes)
+    print_credit_mismatch_warning(credit_mismatches)
 
     prereq_map = CSE_PREREQS if program_key=="CSE" else MIC_PREREQS
     passed_set = build_passed_set(rows, prereq_map=prereq_map, waived_courses=waived_courses)

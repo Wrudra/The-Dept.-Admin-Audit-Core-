@@ -10,7 +10,10 @@ FIXES applied (vs original):
   #6  Early validation for unsupported program names in main().
   #7  Retake tiebreaker: same grade → use transcript order (most recent), not credits.
   #10 --no-interact flag: auto-selects best options; suitable for AI-agent invocation.
-  Visual: Unicode box-drawing tables; wider status column (72 chars); elegant banners.
+  #12 detect_credit_mismatches() + print_credit_mismatch_warning(): if a transcript
+      lists a different credit value than program.md defines, a warning banner is
+      printed and the program-defined credit is used (as it always was, silently).
+      Applies to both CSE and MIC.  NCL (0-credit) labs are exempt from the check.
 
 Usage: python3 audit_l1.py transcript.csv program_name program_knowledge.md [--no-interact]
 """
@@ -661,6 +664,82 @@ def load_transcript(path: Path) -> list[dict]:
             if not course_code and not grade and credits==0: continue
             rows.append({"course_code":course_code or "UNKNOWN","credits":credits,"grade":grade,"semester":semester})
     return rows
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Credit mismatch detection
+# ══════════════════════════════════════════════════════════════════════════════
+def detect_credit_mismatches(
+    rows: list[dict],
+    program_credits: dict[str, dict[str, float]],
+    program_key: str,
+    allowed_codes: Optional[Set[str]] = None,
+) -> dict[str, tuple[float, float]]:
+    """
+    Compare transcript credit values against program.md definitions.
+    For every in-curriculum course whose transcript credit differs from the
+    program-defined credit, record (transcript_cr, program_cr).
+
+    Only courses listed in program.md (program_credits) and belonging to the
+    program curriculum (allowed_codes) are checked.  NCL (0-credit) labs are
+    skipped because the transcript often omits their credit column entirely.
+
+    Returns: {normalized_course_code: (transcript_cr, program_cr)}
+    """
+    prog_cr_map = program_credits.get(program_key, {})
+    ncl = get_ncl_labs(program_key)
+
+    # Collect transcript credit per course.
+    # A course may appear multiple times (retakes); credits should be identical
+    # across attempts — if not, use the first non-zero value, else the first.
+    transcript_cr: dict[str, float] = {}
+    for r in rows:
+        n = normalize_course_code(r["course_code"])
+        if n not in transcript_cr:
+            transcript_cr[n] = r["credits"]
+        elif transcript_cr[n] == 0.0 and r["credits"] != 0.0:
+            transcript_cr[n] = r["credits"]
+
+    mismatches: dict[str, tuple[float, float]] = {}
+    for n, t_cr in transcript_cr.items():
+        if allowed_codes is not None and n not in allowed_codes:
+            continue  # not part of this program's curriculum
+        if n in ncl:
+            continue  # NCL labs are always 0-credit — skip
+        if n not in prog_cr_map:
+            continue  # program.md has no credit entry for this course
+        p_cr = prog_cr_map[n]
+        if abs(t_cr - p_cr) > 1e-9:
+            mismatches[n] = (t_cr, p_cr)
+
+    return mismatches
+
+
+def print_credit_mismatch_warning(mismatches: dict[str, tuple[float, float]]) -> None:
+    """
+    Print a prominent warning banner whenever the transcript lists different
+    credit values from those defined in program.md.
+    Program-defined credits are always authoritative for all calculations.
+    """
+    if not mismatches:
+        return
+    print()
+    print(_btop())
+    print(_bline("⚠  CREDIT MISMATCH — TRANSCRIPT vs PROGRAM DEFINITION"))
+    print(_bline("The courses below have different credit values in the transcript vs program"))
+    print(_bline("Program-defined credits are authoritative and have been used for all calculations."))
+    print(_bsep())
+    print(_THDR)
+    print(_TROW_SEP)
+    for code in sorted(mismatches):
+        t_cr, p_cr = mismatches[code]
+        status = (f"Transcript listed {t_cr:.1f} cr  →  "
+                  f"Overridden with program.md value: {p_cr:.1f} cr")
+        print(_trow(code, p_cr, "—", status))
+        print(_TROW_SEP)
+    print(_TBOT)
+    print(_bbot())
+    print()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Credit computation
@@ -1431,6 +1510,11 @@ def main() -> int:
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     allowed_codes = (allowed_codes | all_selected) - trail_alias_excl  # remove cross-listed alias losers
     unselected_electives = all_elective_candidates - all_selected
+
+    # Credit mismatch check: warn if transcript credits differ from program.md
+    credit_mismatches = detect_credit_mismatches(
+        rows, credits_by_program, program_key, allowed_codes=allowed_codes)
+    print_credit_mismatch_warning(credit_mismatches)
 
     pkey       = program_key
     prereq_map = CSE_PREREQS if pkey=="CSE" else MIC_PREREQS

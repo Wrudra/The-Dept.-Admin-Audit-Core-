@@ -14,6 +14,9 @@ FIXES applied (vs original):
   #6  Program validation inherited from run_audit() in audit_l2.
   #9  Passes report_level=3 to print_report() so the header reads
       "LEVEL 3 ▸ CGPA & CREDIT TALLY REPORT" — not "LEVEL 2".
+  #12 Credit mismatch warning: inherited via run_audit() in audit_l2 — if any
+      transcript credit differs from program.md, a warning banner is printed and
+      program-defined credits are used (same for both CSE and MIC).
   All L1/L2 fixes inherited automatically via imports.
 
 Usage: python3 audit_l3.py transcript.csv program_name program_knowledge.md [--no-interact]
