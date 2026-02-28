@@ -201,6 +201,7 @@ CSE_PREREQS: dict[str, list] = {
     "ENG103":  [frozenset({"ENG102","WAIVER_ENG102"})],
     "ENG111":  [frozenset({"ENG103"})],
     "BEN205":  [frozenset({"ENG103"})],
+    "MAT116":  [frozenset({"MAT112","WAIVER_MAT112"})],
     "MAT120":  [frozenset({"MAT116"})],
     "MAT125":  [frozenset({"MAT116"})],
     "MAT130":  [frozenset({"MAT120"})],
