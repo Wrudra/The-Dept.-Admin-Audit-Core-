@@ -115,20 +115,20 @@ GPA = Total Grade Points Earned ÷ Credits Attempted
 
 _11 Theory & 1 Lab Course_
 
-| Course                                | Credits | Prerequisites  | Notes         |
-| ------------------------------------- | ------- | -------------- | ------------- |
-| ENG 102                               | 3       | None           | _0 if waived_ |
-| ENG 103                               | 3       | ENG 102/Waiver |               |
-| ENG 111                               | 3       | None           |               |
-| BEN 205                               | 3       | ENG 103        |               |
-| HIS 102                               | 3       | None           |               |
-| HIS 103                               | 3       | None           |               |
-| PHI 104                               | 3       | None           |               |
-| BIO 103                               | 3       | None           |               |
-| **BIO 103L**                          | **0**   | None           | **Lab**       |
-| POL 101 / POL 104                     | 3       | None           | Choose one    |
-| ECO 101 / ECO 104                     | 3       | None           | Choose one    |
-| SOC 101 / ENV 203 / GEO 205 / ANT 101 | 3       | None           | Choose one    |
+| Course                                | Credits | Prerequisites  | Notes                                    |
+| ------------------------------------- | ------- | -------------- | ---------------------------------------- |
+| ENG 102                               | 3       | None           | _0 if waived_                            |
+| ENG 103                               | 3       | ENG 102/Waiver |                                          |
+| ENG 111                               | 3       | None           |                                          |
+| BEN 205                               | 3       | ENG 103        |                                          |
+| HIS 102                               | 3       | None           |                                          |
+| HIS 103                               | 3       | None           |                                          |
+| PHI 104                               | 3       | None           |                                          |
+| BIO 103                               | 3       | None           |                                          |
+| **BIO 103L**                          | **1**   | None           | **Lab — alternative to CSE 498R/I slot** |
+| POL 101 / POL 104                     | 3       | None           | Choose one                               |
+| ECO 101 / ECO 104                     | 3       | None           | Choose one                               |
+| SOC 101 / ENV 203 / GEO 205 / ANT 101 | 3       | None           | Choose one                               |
 
 ---
 
@@ -293,12 +293,20 @@ _LO = Last Offered (Semester Code)_
 
 ---
 
-## Internship/Research (1 Credit)
+## Internship / Research or BIO103L (1 Credit — Choose One)
 
-**CSE 498R / CSE 498I** — 1 credit **mandatory** (not open elective). Must pass (choose one):
+This slot requires exactly **1 credit** from one of the following two options. Only the chosen option counts toward graduation credits and CGPA; the other is excluded.
+
+**Option A — Internship / Research:**
+
+**CSE 498R / CSE 498I** — 1 credit (choose one):
 
 - **Internship (498R)**: Minimum 320 hours over 8-12 weeks
 - **Research (498I)**: One-on-one with faculty on independent project
+
+**Option B — BIO 103L (Lab):**
+
+The 1-credit Biology lab (BIO103L) from the GED core may fill this slot instead. If BIO103L is chosen here, CSE498R/I is excluded (and vice versa).
 
 ---
 

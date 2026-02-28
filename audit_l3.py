@@ -33,6 +33,7 @@ from audit_l1 import (
     _TTOP, _TROW_SEP, _TBOT, _THDR, _trow, _tsep,
     normalize_course_code,
     CSE_TRAILS, CSE_GED_CHOICE_GROUPS, CSE_INTERNSHIP_RESEARCH, CSE_MINOR_COURSES,
+    CSE_BIO_INTERNSHIP_SLOT,
     MIC_ALIAS_PAIRS, MIC_LANGUAGE_CHOICES, MIC_HUMANITIES_CHOICES,
     MIC_SOCIAL_CHOICES, MIC_SCIENCE_CHOICES, MIC_REQUIRED_CATEGORIES,
     get_ncl_labs,
@@ -86,7 +87,7 @@ def compute_deficiencies(result: dict) -> dict:
         choice_codes= {c for group in CSE_GED_CHOICE_GROUPS for c in group}
         ncl         = get_ncl_labs("CSE")
         required_single = (cse_codes - all_trail - choice_codes
-                           - CSE_INTERNSHIP_RESEARCH - ncl - CSE_MINOR_COURSES)
+                           - CSE_INTERNSHIP_RESEARCH - CSE_BIO_INTERNSHIP_SLOT - ncl - CSE_MINOR_COURSES)
         missing_single = sorted(
             normalize_course_code(c) for c in required_single
             if normalize_course_code(c) not in waived_n
@@ -100,8 +101,9 @@ def compute_deficiencies(result: dict) -> dict:
             if not any(c in passed_set for c in group):
                 missing_mandatory.append(("GED choice group (one course required)", group.copy()))
 
-        if not (CSE_INTERNSHIP_RESEARCH & passed_set):
-            missing_mandatory.append(("Internship / Research (1 credit)", list(CSE_INTERNSHIP_RESEARCH)))
+        if not (CSE_BIO_INTERNSHIP_SLOT & passed_set):
+            missing_mandatory.append(("Internship / Research or BIO103L (1 credit — choose one)",
+                                      ["CSE498R", "CSE498I", "BIO103L"]))
 
         num_trail = len([c for c in major_electives if normalize_course_code(c) in all_trail])
         if num_trail < 3:

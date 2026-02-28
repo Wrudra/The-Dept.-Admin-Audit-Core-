@@ -41,6 +41,7 @@ from audit_l1 import (
     CSE_NCL_LABS, MIC_NCL_LABS, get_ncl_labs,
     PROGRAM_BASE_CREDITS, WAIVERABLE_COURSES, WAIVER_CREDITS_EACH,
     CSE_INTERNSHIP_RESEARCH, CSE_MINOR_COURSES,
+    CSE_BIO_INTERNSHIP_SLOT,
     MIC_REQUIRED_CATEGORIES, MIC_ALIAS_PAIRS,
     MIC_LANGUAGE_CHOICES, MIC_HUMANITIES_CHOICES, MIC_SOCIAL_CHOICES, MIC_SCIENCE_CHOICES,
     # Helpers
@@ -52,6 +53,7 @@ from audit_l1 import (
     _mic_course_category, resolve_mic_aliases, resolve_cse_choice_groups,
     select_mic_core_choices,
     select_electives, print_elective_summary,
+    resolve_cse_bio_internship_choice,
     _prompt_yes_no, _prompt_pick, _course_display, _get_taken_courses,
     get_required_credits_for_waivers,
     detect_credit_mismatches, print_credit_mismatch_warning,
@@ -419,6 +421,9 @@ def run_audit(args) -> dict:
             print()
         core_excluded = core_excluded | cse_excl
         allowed_codes = allowed_codes - cse_excl
+        bio_intern_excl = resolve_cse_bio_internship_choice(rows)
+        core_excluded = core_excluded | bio_intern_excl
+        allowed_codes = allowed_codes - bio_intern_excl
 
     all_elective_candidates: Set[str] = (
         {c for trail in CSE_TRAILS.values() for c in trail} if program_key=="CSE"

@@ -352,7 +352,7 @@ NO_CREDIT_GRADES = {"F","W","I"}
 #  FIX #5: MIC has its own NCL set (currently empty; no 0-credit labs in MIC core).
 #           Previously MIC inherited CSE labs (CSE225L etc.) which was semantically wrong.
 # ══════════════════════════════════════════════════════════════════════════════
-CSE_NCL_LABS: Set[str] = {"CSE225L","CSE231L","CSE311L","CSE331L","CSE332L","BIO103L"}
+CSE_NCL_LABS: Set[str] = {"CSE225L","CSE231L","CSE311L","CSE331L","CSE332L"}
 MIC_NCL_LABS: Set[str] = set()   # MIC has no 0-credit labs in core curriculum
 
 def get_ncl_labs(program_key: Optional[str] = None) -> Set[str]:
@@ -370,6 +370,8 @@ PROGRAM_BASE_CREDITS: dict[str,int] = {"CSE":130,"MIC":120}
 WAIVERABLE_COURSES = frozenset({"ENG102","MAT112"})
 WAIVER_CREDITS_EACH = 3
 CSE_INTERNSHIP_RESEARCH = frozenset({"CSE498R","CSE498I"})
+# BIO103L and CSE498R/I fill the same 1-credit slot — only one may count.
+CSE_BIO_INTERNSHIP_SLOT: frozenset[str] = frozenset({"BIO103L","CSE498R","CSE498I"})
 # Minor in Math — additional courses beyond School Core (MAT120/125/130/250 already required)
 CSE_MINOR_MATH:    Set[str] = {"MAT370","MAT480","MAT481","MAT482","MAT483","MAT485"}
 # Minor in Physics — PHY310/PHY440 are a choice (either counts)
@@ -878,6 +880,11 @@ def reason_not_counted(
     if n in _waived_n:
         return "waived — counts in Credit Completed only (excluded from Credit Counted & CGPA)"
     if core_excluded and n in core_excluded:
+        if n in CSE_BIO_INTERNSHIP_SLOT:
+            if n == "BIO103L":
+                return "1-credit slot claimed by CSE498R/I — only one of BIO103L / CSE498R / CSE498I may count"
+            else:  # CSE498R or CSE498I excluded
+                return "1-credit slot claimed by BIO103L — only one of BIO103L / CSE498R / CSE498I may count"
         return "choice slot already filled by a higher-grade course from the same group"
     if unselected_electives and n in unselected_electives:
         # Course IS a known elective for this program — never show "not part of curriculum".
@@ -1249,6 +1256,75 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Elective selection
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+#  BIO103L / Internship choice resolution (CSE only)
+# ══════════════════════════════════════════════════════════════════════════════
+def resolve_cse_bio_internship_choice(rows: list[dict]) -> set[str]:
+    """
+    BIO103L and CSE498R/CSE498I occupy the same 1-credit slot in the CSE program.
+    Exactly ONE may count toward graduation credits and CGPA; the other is excluded.
+
+    Logic:
+      - Only one side on record  → auto-select it, no prompt.
+      - Both sides on record     → prompt the admin to choose.
+      - Neither on record        → no action (deficiency check will catch it).
+
+    In NO_INTERACT mode, CSE498R/I is auto-preferred over BIO103L.
+
+    Returns: set of course codes to EXCLUDE from the credit tally (added to core_excluded).
+    """
+    by_course: dict[str, list[dict]] = {}
+    for r in rows:
+        by_course.setdefault(normalize_course_code(r["course_code"]), []).append(r)
+
+    internship_passed = [
+        c for c in ("CSE498R", "CSE498I")
+        if c in by_course and has_passing_attempt(by_course[c])
+    ]
+    bio_passed = "BIO103L" in by_course and has_passing_attempt(by_course["BIO103L"])
+
+    excluded: set[str] = set()
+
+    print()
+    print(_btop())
+    print(_bline("CSE INTERNSHIP / BIO103L — 1-CREDIT SLOT"))
+    print(_bline("BIO103L (lab) and CSE498R/I (internship/research) fill the same 1-credit slot."))
+    print(_bline("Only ONE counts toward graduation credits and CGPA; the other is excluded."))
+    print(_bsep())
+
+    if not internship_passed and not bio_passed:
+        print(_bline("  Neither BIO103L nor CSE498R/I found with a passing grade — slot unfilled."))
+
+    elif bio_passed and not internship_passed:
+        print(_bline("  BIO103L — only option on record, auto-selected for the 1-credit slot."))
+        excluded.update({"CSE498R", "CSE498I"})
+
+    elif internship_passed and not bio_passed:
+        chosen = internship_passed[0]
+        grade  = get_display_grade(by_course[chosen])
+        print(_bline(f"  {chosen}  ({grade}) — only option on record, auto-selected for the 1-credit slot."))
+        excluded.add("BIO103L")
+
+    else:
+        # Both sides present — prompt (internship listed first so NO_INTERACT prefers it)
+        options = internship_passed + ["BIO103L"]
+        display = [
+            f"{c:<10}  (grade: {get_display_grade(by_course[c])})"
+            for c in options
+        ]
+        print(_bline("  Both BIO103L and CSE498R/I passed — choose ONE to count:"))
+        print(_bsep())
+        chosen  = _prompt_pick("", options, display=display)
+        excluded = set(options) - {chosen}
+        grade   = get_display_grade(by_course[chosen])
+        print(_bline(f"  ✓ {chosen}  ({grade}) selected for the 1-credit slot."))
+        excl_str = ", ".join(sorted(excluded))
+        print(_bline(f"    Excluded: {excl_str}"))
+
+    print(_bbot())
+    return excluded
+
+
 def select_electives_cse(
     rows: list[dict],
     allowed_codes: Optional[Set[str]] = None,
@@ -1580,6 +1656,9 @@ def main() -> int:
         cse_excl = resolve_cse_choice_groups(rows)
         core_excluded = core_excluded | cse_excl
         allowed_codes = allowed_codes - cse_excl
+        bio_intern_excl = resolve_cse_bio_internship_choice(rows)
+        core_excluded = core_excluded | bio_intern_excl
+        allowed_codes = allowed_codes - bio_intern_excl
 
     all_elective_candidates: Set[str] = (
         {c for trail in CSE_TRAILS.values() for c in trail} if program_key=="CSE"
