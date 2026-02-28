@@ -19,6 +19,11 @@ FIXES applied (vs original):
       attempt had the correct credit (e.g. CSE173 C+/3cr then A/80cr → only
       80cr row matters but 3cr was seen first).  Fixed to use the best-passing-
       attempt credit, mirroring the credit engine's own selection logic.
+  #17 compute_total_valid_credits(): NSU courses not defined in program.md (e.g.
+      open/free electives) are now validated against NSU_CATALOG_EXPANDED before
+      counting — non-NSU courses are zeroed out entirely.  Valid NSU courses are
+      hard-capped at 3.0 credits since all standard electives are 3 credits;
+      anything higher in the CSV is a data entry error.
   #15 detect_credit_mismatches(): CSE_INTERNSHIP_RESEARCH (CSE498R/I) now exempt
       from the mismatch check — their credit is hardcoded to 1.0 in
       load_program_courses() regardless of the transcript, so the warning was
@@ -861,6 +866,14 @@ def compute_total_valid_credits(
                 raw_credits = program_credits[program_key][n]
             else:
                 per_course[code] = 0.0; continue
+        else:
+            # FIX #17: course not defined in program.md — must be NSU-offered to count.
+            # Non-NSU courses are zeroed out entirely.  NSU courses are capped at 3.0
+            # since all standard electives are 3 credits; anything higher in the CSV
+            # is a data entry error that must not inflate the tally.
+            if n not in NSU_CATALOG_EXPANDED:
+                per_course[code] = 0.0; continue
+            raw_credits = min(raw_credits, 3.0)
         if raw_credits==0 and not has_passing_attempt(att):
             per_course[code] = 0.0; continue
         if prereq_map and passed_set is not None and has_passing_attempt(att):
