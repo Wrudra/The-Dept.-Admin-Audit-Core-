@@ -759,6 +759,61 @@ def print_credit_mismatch_warning(mismatches: dict[str, tuple[float, float]]) ->
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Grade anomaly detection
+# ══════════════════════════════════════════════════════════════════════════════
+_KNOWN_GRADES: frozenset[str] = frozenset(PASSING_GRADES | NO_CREDIT_GRADES)
+
+def detect_grade_anomalies(rows: list[dict]) -> dict[str, list[tuple[str, str]]]:
+    """
+    Scan every transcript row for grades outside NSU policy.
+    A grade is anomalous if it is not in PASSING_GRADES (A..D) or NO_CREDIT_GRADES (F/W/I).
+
+    Returns: {course_code: [(grade, semester), ...]}
+      — one entry per course that has at least one anomalous attempt.
+      Multiple anomalous rows for the same course are grouped together.
+    """
+    anomalies: dict[str, list[tuple[str, str]]] = {}
+    for r in rows:
+        if r["grade"] not in _KNOWN_GRADES:
+            anomalies.setdefault(r["course_code"], []).append((r["grade"], r["semester"]))
+    return anomalies
+
+
+def print_grade_anomaly_warning(anomalies: dict[str, list[tuple[str, str]]]) -> None:
+    """
+    Print a prominent warning banner for every transcript row whose grade is
+    not recognised by NSU grading policy.
+
+    Consequences spelled out for the admin:
+      • The row is treated as a non-passing, non-credit attempt (same as F for
+        credit purposes, but the credits DO enter the CGPA denominator with 0 GP,
+        dragging the CGPA down — just like a real F would).
+      • Any course that depends on this one as a prerequisite will also fail,
+        since the course is not in the student's passed_set.
+    """
+    if not anomalies:
+        return
+    print()
+    print(_btop())
+    print(_bline("⚠  UNRECOGNISED GRADE — OUTSIDE NSU GRADING POLICY"))
+    print(_bline("The rows below carry a grade not in the NSU scale (A/A-/B+/B/B-/C+/C/C-/D+/D/F/W/I)."))
+    print(_bline("Each anomalous row is treated as non-passing (0 credits)."))
+    print(_bline("If also in-curriculum, its credits enter the CGPA denominator with 0 GP — same as F."))
+    print(_bline("Any courses that require it as a prerequisite will also be blocked."))
+    print(_bsep())
+    print(_THDR)
+    print(_TROW_SEP)
+    for code in sorted(anomalies):
+        for grade, semester in anomalies[code]:
+            status = f"Grade '{grade}' is not a valid NSU grade — treated as non-passing (semester: {semester})"
+            print(_trow(code, "—", grade, status))
+            print(_TROW_SEP)
+    print(_TBOT)
+    print(_bbot())
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Credit computation
 # ══════════════════════════════════════════════════════════════════════════════
 def compute_total_valid_credits(
@@ -1504,6 +1559,10 @@ def main() -> int:
         allowed_codes   = allowed_codes - _purely_elective
 
     rows = load_transcript(args.transcript)
+
+    # Grade anomaly check: warn immediately after loading — before any computation
+    grade_anomalies = detect_grade_anomalies(rows)
+    print_grade_anomaly_warning(grade_anomalies)
 
     core_excluded: Set[str] = set()
     if program_key == "MIC":

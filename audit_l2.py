@@ -55,6 +55,7 @@ from audit_l1 import (
     _prompt_yes_no, _prompt_pick, _course_display, _get_taken_courses,
     get_required_credits_for_waivers,
     detect_credit_mismatches, print_credit_mismatch_warning,
+    detect_grade_anomalies, print_grade_anomaly_warning,
     NO_INTERACT,
 )
 
@@ -392,6 +393,10 @@ def run_audit(args) -> dict:
     )
 
     rows = load_transcript(args.transcript)
+
+    # Grade anomaly check: warn immediately after loading — before any computation
+    grade_anomalies = detect_grade_anomalies(rows)
+    print_grade_anomaly_warning(grade_anomalies)
 
     core_excluded: Set[str] = set()
     if program_key == "MIC":
