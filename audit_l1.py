@@ -1314,7 +1314,22 @@ def resolve_cse_bio_internship_choice(rows: list[dict]) -> set[str]:
         ]
         print(_bline("  Both BIO103L and CSE498R/I passed — choose ONE to count:"))
         print(_bsep())
-        chosen  = _prompt_pick("", options, display=display)
+        if NO_INTERACT:
+            for i, label in enumerate(display, 1):
+                print(_bline(f"  {i}. {label}"))
+            print(_bline(f"  [auto] → {display[0]}"))
+            chosen = options[0]
+        else:
+            while True:
+                for i, label in enumerate(display, 1):
+                    print(_bline(f"  {i}. {label}"))
+                print(_bsep())
+                raw = input("      Enter number: ").strip()
+                if raw.isdigit() and 0 <= int(raw) - 1 < len(options):
+                    chosen = options[int(raw) - 1]
+                    break
+                print(_bline("  Invalid input, please try again."))
+                print(_bsep())
         excluded = set(options) - {chosen}
         grade   = get_display_grade(by_course[chosen])
         print(_bline(f"  ✓ {chosen}  ({grade}) selected for the 1-credit slot."))

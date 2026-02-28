@@ -259,6 +259,21 @@ def print_report(
     credit_completed = total + WAIVER_CREDITS_EACH * len(_waived)
     class_eq  = get_class_equivalence(cgpa)
 
+    # Credit Passed: all courses with passing grades A–D.
+    # Includes 0-graduation-credit courses the student still had to pass (e.g. MAT116 for CSE),
+    # using the transcript credit value for those courses since the 0 is a graduation rule,
+    # not a reflection of actual course weight.
+    _cgpa_excl = CGPA_EXCLUDED_BY_PROGRAM.get(program_key, set())
+    _zero_passed_extra = 0.0
+    for _n in _cgpa_excl:
+        _attempts = by_course.get(_n, [])
+        if not has_passing_attempt(_attempts):
+            continue
+        _passing = [a for a in _attempts if is_passing(a["grade"])]
+        _best    = max(_passing, key=lambda a: GRADE_RANK.get(a["grade"], 0))
+        _zero_passed_extra += _best["credits"]
+    credit_passed = total + _zero_passed_extra
+
     # ── Banner ────────────────────────────────────────────────────────────────
     title = f"LEVEL {report_level} ▸ CGPA & CREDIT TALLY REPORT"
     print()
@@ -274,10 +289,12 @@ def print_report(
     cgpa_ok   = cgpa >= 2.0
     if required_credits is not None:
         cr_flag  = "✓ MET" if credit_ok else "✗ NOT MET"
-        print(_bline(f"CREDIT COUNTED    :  {total:.1f}   (courses with letter grades; basis for CGPA)"))
+        print(_bline(f"CREDIT PASSED     :  {credit_passed:.1f}   (passing grades A–D; counts toward graduation)"))
+        print(_bline(f"CREDIT COUNTED    :  {total_cr_attempted:.1f}   (A–F grades in curriculum; CGPA denominator)"))
         print(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f} / {required_credits} required   [{cr_flag}]"))
     else:
-        print(_bline(f"CREDIT COUNTED    :  {total:.1f}"))
+        print(_bline(f"CREDIT PASSED     :  {credit_passed:.1f}   (passing grades A–D; counts toward graduation)"))
+        print(_bline(f"CREDIT COUNTED    :  {total_cr_attempted:.1f}   (A–F grades in curriculum; CGPA denominator)"))
         print(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f}"))
     cgpa_flag = "✓ MET (≥ 2.0)" if cgpa_ok else "✗ PROBATION — below 2.0 minimum"
     print(_bline(f"CGPA              :  {cgpa:.2f}   [{class_eq}]   [{cgpa_flag}]"))
@@ -355,9 +372,9 @@ def print_report(
 
 
     print(_btop())
+    print(_bline(f"Credit Passed                :  {credit_passed:.1f}   (passing grades A–D; toward graduation)"))
+    print(_bline(f"Credit Counted               :  {total_cr_attempted:.1f}   (A–F grades; CGPA denominator — includes F where applicable)"))
     print(_bline(f"Total Grade Points           :  {total_gp:.2f}"))
-    print(_bline(f"Credit Counted (denom.)      :  {total_cr_attempted:.1f}  "
-                 "(best attempt per course; denominator = Credit Counted)"))
     print(_bline(f"CGPA                         :  {cgpa:.2f}   ({class_eq})"))
     standing = ("⚠  PROBATION — CGPA is below the 2.0 minimum required for graduation"
                 if cgpa < 2.0 else class_eq)
