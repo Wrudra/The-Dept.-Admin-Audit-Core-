@@ -19,6 +19,14 @@ FIXES applied (vs original):
       attempt had the correct credit (e.g. CSE173 C+/3cr then A/80cr → only
       80cr row matters but 3cr was seen first).  Fixed to use the best-passing-
       attempt credit, mirroring the credit engine's own selection logic.
+  #15 detect_credit_mismatches(): CSE_INTERNSHIP_RESEARCH (CSE498R/I) now exempt
+      from the mismatch check — their credit is hardcoded to 1.0 in
+      load_program_courses() regardless of the transcript, so the warning was
+      redundant noise.
+  #16 detect_credit_mismatches(): courses where program.md defines 0.0 credits
+      (e.g. MAT116 in CSE — prereq-only, no graduation credit) are now exempt.
+      The transcript will always carry the registrar face-value (3.0); flagging
+      this as a mismatch is misleading since the zero is an intentional policy.
 
 Usage: python3 audit_l1.py transcript.csv program_name program_knowledge.md [--no-interact]
 """
@@ -725,9 +733,13 @@ def detect_credit_mismatches(
             continue  # not part of this program's curriculum
         if n in ncl:
             continue  # NCL labs are always 0-credit — skip
+        if n in CSE_INTERNSHIP_RESEARCH:
+            continue  # credit hardcoded to 1.0 in load_program_courses(); mismatch warning redundant
         if n not in prog_cr_map:
             continue  # program.md has no credit entry for this course
         p_cr = prog_cr_map[n]
+        if p_cr == 0.0:
+            continue  # program defines 0-credit intentionally (e.g. MAT116 in CSE); not a mismatch
         if abs(t_cr - p_cr) > 1e-9:
             mismatches[n] = (t_cr, p_cr)
 
