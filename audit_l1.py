@@ -1531,8 +1531,9 @@ def main() -> int:
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
         core_excluded=core_excluded)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
-    allowed_codes = (allowed_codes | all_selected) - trail_alias_excl  # remove cross-listed alias losers
     unselected_electives = all_elective_candidates - all_selected
+    # FIX: also subtract unselected_electives — trail courses not chosen must not count toward credits
+    allowed_codes = (allowed_codes | all_selected) - trail_alias_excl - unselected_electives
 
     # Credit mismatch check: warn if transcript credits differ from program.md
     credit_mismatches = detect_credit_mismatches(
