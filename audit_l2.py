@@ -13,8 +13,15 @@ FIXES applied (vs original):
   #11 compute_cgpa() always normalises waived_courses before comparison.
   #12 Credit mismatch warning inherited via detect_credit_mismatches /
       print_credit_mismatch_warning; run_audit() now calls both.
-  All L1 fixes (#2 MIC498 prereq, #3 dead code, #5 NCL labs, #6 validation,
-               #7 tiebreaker, #10 --no-interact) inherited automatically via import.
+  #17 compute_cgpa() _eff_cr(): non-program NSU courses (open/free electives not in
+      program.md) are now capped at 3.0 credits, mirroring FIX #17 in audit_l1's
+      compute_total_valid_credits(). Without this, a transcript credit of e.g. 6.0
+      would inflate Credit Counted and Grade Points even though only 3.0 is counted
+      toward graduation.
+  #17 run_audit(): select_electives() now receives program_credits so _course_display()
+      can apply the 3.0 cap in the selection menu, making the displayed credit match
+      what the engine will actually count.
+  All L1 fixes inherited automatically via import.
 
 Usage: python3 audit_l2.py transcript.csv program_name program_knowledge.md [--no-interact]
 """
@@ -194,7 +201,9 @@ def compute_cgpa(
         def _eff_cr(attempt: dict) -> float:
             if program_credits and program_key and n in program_credits.get(program_key,{}):
                 return program_credits[program_key][n]
-            return attempt["credits"]
+            # FIX #17 (cgpa): mirror cap from compute_total_valid_credits — non-program
+            # NSU courses are capped at 3.0; transcript value is not authoritative.
+            return min(attempt["credits"], 3.0)
 
         passing = [a for a in cgpa_att if is_passing(a["grade"])]
         if passing:
@@ -447,13 +456,18 @@ def run_audit(args) -> dict:
         else set(MIC_ELECTIVES)
     )
 
-    major_electives, open_elective, free_electives, trail_alias_excl = select_electives(
+    major_electives, open_elective, free_electives, trail_alias_excl, selected_minor_courses = select_electives(
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
-        core_excluded=core_excluded)
+        core_excluded=core_excluded, program_credits=credits_by_program)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     unselected_electives = all_elective_candidates - all_selected
     # FIX: also subtract unselected_electives — trail courses not chosen must not count toward credits
     allowed_codes = (allowed_codes | all_selected) - trail_alias_excl - unselected_electives
+    # FIX #18: subtract minor courses that were neither declared nor chosen as open elective
+    if program_key == "CSE":
+        open_n_str = normalize_course_code(open_elective) if open_elective else ""
+        minor_unused = CSE_MINOR_COURSES - selected_minor_courses - ({open_n_str} if open_n_str else set())
+        allowed_codes -= minor_unused
 
     # Credit mismatch check: warn if transcript credits differ from program.md
     credit_mismatches = detect_credit_mismatches(
@@ -473,7 +487,8 @@ def run_audit(args) -> dict:
     # Print elective summary AFTER prereq computation so it can warn about blocked selections
     print_elective_summary(major_electives, open_elective, program_key,
                            free_electives=free_electives, rows=rows,
-                           prereq_failures=prereq_failures)
+                           prereq_failures=prereq_failures,
+                           selected_minor_courses=selected_minor_courses)
 
     cgpa, total_gp, total_cr_attempted, per_course_cgpa = compute_cgpa(
         rows, allowed_codes=allowed_codes, program_key=program_key,

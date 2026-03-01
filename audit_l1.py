@@ -19,7 +19,12 @@ FIXES applied (vs original):
       attempt had the correct credit (e.g. CSE173 C+/3cr then A/80cr → only
       80cr row matters but 3cr was seen first).  Fixed to use the best-passing-
       attempt credit, mirroring the credit engine's own selection logic.
-  #17 compute_total_valid_credits(): NSU courses not defined in program.md (e.g.
+  #18 Minor course declaration prompt: a new interactive step (between secondary
+      trail selection and open elective selection) asks the admin to declare which
+      minor courses count toward the student's minor program.  Declared courses
+      are listed in the minor box with completion status.  Non-declared courses
+      remain in the open elective pool; if not picked there either they are
+      removed from allowed_codes and do not count toward graduation credits.
       open/free electives) are now validated against NSU_CATALOG_EXPANDED before
       counting — non-NSU courses are zeroed out entirely.  Valid NSU courses are
       hard-capped at 3.0 credits since all standard electives are 3 credits;
@@ -1191,13 +1196,22 @@ def _prompt_yes_no(prompt: str) -> bool:
         if raw in ("n","no"):  return False
         print("      Please enter y or n.")
 
-def _course_display(code: str, rows: list[dict]) -> str:
-    att = [r for r in rows if normalize_course_code(r["course_code"])==normalize_course_code(code)]
+def _course_display(code: str, rows: list[dict],
+                    program_credits: Optional[dict[str,dict[str,float]]] = None,
+                    program_key: Optional[str] = None) -> str:
+    n   = normalize_course_code(code)
+    att = [r for r in rows if normalize_course_code(r["course_code"]) == n]
     passing = [a for a in att if is_passing(a["grade"])]
     if passing:
-        best = max(passing, key=lambda a: GRADE_RANK.get(a["grade"],0))
-        cr = best["credits"]
-        return f"{code:<10}  ({int(cr) if cr==int(cr) else cr} cr, {best['grade']})"
+        best = max(passing, key=lambda a: GRADE_RANK.get(a["grade"], 0))
+        cr   = best["credits"]
+        # FIX #17 (display): mirror the credit cap from compute_total_valid_credits —
+        # if the course is not defined in program.md, cap the displayed credit at 3.0
+        # so the selection menu always matches what the engine will actually count.
+        if program_credits and program_key:
+            if n not in program_credits.get(program_key, {}):
+                cr = min(cr, 3.0)
+        return f"{code:<10}  ({int(cr) if cr == int(cr) else cr} cr, {best['grade']})"
     return code
 
 def _get_taken_courses(rows: list[dict]) -> list[str]:
@@ -1366,11 +1380,88 @@ def resolve_cse_bio_internship_choice(rows: list[dict]) -> set[str]:
     return excluded
 
 
+def _select_minor_courses_cse(
+    rows: list[dict],
+    taken: Set[str],
+    waived: Set[str],
+    core_excluded: Set[str],
+    program_credits: Optional[dict[str, dict[str, float]]] = None,
+    program_key: Optional[str] = None,
+) -> Set[str]:
+    """
+    FIX #18: Prompt admin to declare which minor courses count for this student's minor.
+    Uses the same numbered-list style as elective course selection.
+    Returns set of NORMALIZED declared course codes.
+    Non-declared courses remain available in the open elective pool.
+    """
+    math_extras    = sorted(c for c in taken
+                            if normalize_course_code(c) in CSE_MINOR_MATH
+                            and normalize_course_code(c) not in waived
+                            and normalize_course_code(c) not in core_excluded)
+    physics_extras = sorted(c for c in taken
+                            if normalize_course_code(c) in CSE_MINOR_PHYSICS
+                            and normalize_course_code(c) not in waived
+                            and normalize_course_code(c) not in core_excluded)
+    all_minor = math_extras + physics_extras
+    if not all_minor:
+        return set()
+
+    selected_n: Set[str] = set()
+
+    def _declare_group(group: list[str], label: str, max_needed: int) -> None:
+        remaining = list(group)
+        declared_count = 0
+        print(f"\n  Declare courses for {label}:")
+        while remaining:
+            # Stop once the minor requirement is satisfied — remaining go to open pool
+            if declared_count >= max_needed:
+                leftover = ", ".join(remaining)
+                print(f"  Minor requirement met — remaining course(s) go to open elective pool: {leftover}")
+                break
+            display = [_course_display(c, rows, program_credits, program_key) for c in remaining]
+            for i, d in enumerate(display, 1):
+                print(f"  {i}. {d}")
+            if NO_INTERACT:
+                for c in remaining:
+                    selected_n.add(normalize_course_code(c))
+                    print(f"  [auto] → {_course_display(c, rows, program_credits, program_key)}  declared.")
+                return
+            raw = input("  Enter number to declare (or press Enter when done): ").strip()
+            if not raw:
+                break
+            if raw.isdigit() and 1 <= int(raw) <= len(remaining):
+                chosen = remaining.pop(int(raw) - 1)
+                selected_n.add(normalize_course_code(chosen))
+                declared_count += 1
+                print(f"  ✓ {_course_display(chosen, rows, program_credits, program_key)}  declared.")
+            else:
+                print("  Invalid input, please try again.\n")
+
+    if math_extras:
+        _declare_group(math_extras, "Minor in Mathematics", max_needed=3)
+    if physics_extras:
+        _declare_group(physics_extras, "Minor in Physics", max_needed=5)
+
+    # Summary
+    print()
+    declared_display = [c for c in all_minor if normalize_course_code(c) in selected_n]
+    not_declared     = [c for c in all_minor if normalize_course_code(c) not in selected_n]
+    if declared_display:
+        print(f"  Declared for minor  : {', '.join(declared_display)}")
+    if not_declared:
+        print(f"  Not declared (→ open elective pool): {', '.join(not_declared)}")
+    if not declared_display:
+        print(f"  No courses declared for minor — all remain in open elective pool.")
+    return selected_n
+
+
 def select_electives_cse(
     rows: list[dict],
     allowed_codes: Optional[Set[str]] = None,
     waived_courses: Optional[Set[str]] = None,
     core_excluded: Optional[Set[str]] = None,
+    program_credits: Optional[dict[str,dict[str,float]]] = None,
+    program_key: Optional[str] = None,
 ) -> tuple[list[str],str,list[str]]:
     _waived    = {normalize_course_code(c) for c in (waived_courses or set())}
     _core_excl = {normalize_course_code(c) for c in (core_excluded or set())}
@@ -1415,7 +1506,7 @@ def select_electives_cse(
     ])
     if open_preview:
         print(f"\n    [Open Elective candidates — trail courses + outside-curriculum NSU courses + minor courses]")
-        for c in open_preview: print(f"      {_course_display(c,rows)}")
+        for c in open_preview: print(f"      {_course_display(c, rows, program_credits, program_key)}")
     print()
 
     major_electives: list[str] = []
@@ -1446,6 +1537,12 @@ def select_electives_cse(
         c3 = _prompt_pick("", sec_pool, display=[_course_display(c,rows) for c in sec_pool])
         major_electives.append(c3)
 
+    # FIX #18: Minor course declaration — must happen BEFORE open pool so
+    # declared courses are excluded from it; non-declared ones remain available.
+    selected_minor_n = _select_minor_courses_cse(
+        rows, taken, _waived, _core_excl,
+        program_credits=program_credits, program_key=program_key)
+
     open_pool = sorted([
         c for c in taken
         if normalize_course_code(c) not in _waived
@@ -1455,14 +1552,15 @@ def select_electives_cse(
         and c not in set(major_electives)
         and (c in all_trail_codes
              or c not in (allowed_codes or set())
-             or normalize_course_code(c) in CSE_MINOR_COURSES)
+             or (normalize_course_code(c) in CSE_MINOR_COURSES
+                 and normalize_course_code(c) not in selected_minor_n))
     ])
     if open_pool:
         print("\nSelect your OPEN ELECTIVE (unselected trail + outside-curriculum NSU courses):")
-        open_elective = _prompt_pick("", open_pool, display=[_course_display(c,rows) for c in open_pool])
+        open_elective = _prompt_pick("", open_pool, display=[_course_display(c, rows, program_credits, program_key) for c in open_pool])
     else:
         print("  No outside-curriculum courses found in transcript for open elective.")
-    return major_electives, open_elective, [], _trail_alias_excl
+    return major_electives, open_elective, [], _trail_alias_excl, selected_minor_n
 
 def select_electives_mic(rows: list[dict]) -> tuple[list[str],str,list[str],set]:
     taken = set(_get_taken_courses(rows))
@@ -1522,12 +1620,18 @@ def select_electives(
     allowed_codes: Optional[Set[str]] = None,
     waived_courses: Optional[Set[str]] = None,
     core_excluded: Optional[Set[str]] = None,
-) -> tuple[list[str],str,list[str],set]:
-    if program_key == "CSE": return select_electives_cse(rows, allowed_codes=allowed_codes,
-                                                          waived_courses=waived_courses,
-                                                          core_excluded=core_excluded)
-    if program_key == "MIC": return select_electives_mic(rows)
-    return [],"",[],set(),
+    program_credits: Optional[dict[str,dict[str,float]]] = None,
+) -> tuple[list[str],str,list[str],set,set]:
+    if program_key == "CSE":
+        return select_electives_cse(rows, allowed_codes=allowed_codes,
+                                    waived_courses=waived_courses,
+                                    core_excluded=core_excluded,
+                                    program_credits=program_credits,
+                                    program_key=program_key)
+    if program_key == "MIC":
+        maj, oe, fe, ta = select_electives_mic(rows)
+        return maj, oe, fe, ta, set()
+    return [], "", [], set(), set()
 
 def print_elective_summary(
     major_electives: list[str],
@@ -1536,6 +1640,7 @@ def print_elective_summary(
     free_electives: Optional[list[str]] = None,
     rows: Optional[list[dict]] = None,
     prereq_failures: Optional[dict] = None,
+    selected_minor_courses: Optional[Set[str]] = None,
 ) -> None:
     print()
     print(_btop())
@@ -1563,51 +1668,60 @@ def print_elective_summary(
 
     # ── Minor Program box (CSE only) ─────────────────────────────────────────
     if program_key == "CSE" and rows is not None:
-        # Exclude prereq-failed courses — they don't count toward credits
-        # so they cannot count toward minor completion either.
+        open_n = normalize_course_code(open_elective) if open_elective else ""
+        # FIX #18: use declared minor courses; fall back to all taken if not provided
+        # (backward compat when called without selected_minor_courses).
         _pf_minor = {normalize_course_code(c) for c in (_pf or set())}
-        taken_norm = {normalize_course_code(r["course_code"]) for r in rows
-                      if r.get("grade") in PASSING_GRADES
-                      and normalize_course_code(r["course_code"]) not in _pf_minor}
-        math_taken    = sorted(taken_norm & CSE_MINOR_MATH)
-        physics_taken = sorted(taken_norm & CSE_MINOR_PHYSICS)
+        if selected_minor_courses is not None:
+            declared_n = selected_minor_courses - _pf_minor
+        else:
+            taken_norm = {normalize_course_code(r["course_code"]) for r in rows
+                          if r.get("grade") in PASSING_GRADES
+                          and normalize_course_code(r["course_code"]) not in _pf_minor}
+            declared_n = taken_norm
 
-        if math_taken or physics_taken:
-            open_n = normalize_course_code(open_elective) if open_elective else ""
+        # Open elective counts toward minor completion even if not formally declared
+        active_n = declared_n | ({open_n} if open_n and open_n not in _pf_minor else set())
+
+        math_declared    = sorted(declared_n  & CSE_MINOR_MATH)
+        math_active      = sorted(active_n    & CSE_MINOR_MATH)
+        physics_declared = sorted(declared_n  & CSE_MINOR_PHYSICS)
+        physics_active   = sorted(active_n    & CSE_MINOR_PHYSICS)
+
+        if math_declared or math_active or physics_declared or physics_active:
             print(_btop())
             print(_bline("MINOR PROGRAM(S) DETECTED"))
             print(_bsep())
 
-            if math_taken:
-                # School Core courses already required — they're prereqs not extras
-                MATH_CORE = {"MAT120","MAT125","MAT130","MAT250"}
-                needed_extra = 3   # need 3 additional beyond school core
-                extras = [c for c in math_taken if c not in MATH_CORE]
+            if math_declared or (open_n in CSE_MINOR_MATH):
+                MATH_CORE   = {"MAT120","MAT125","MAT130","MAT250"}
+                needed_extra = 3
+                extras   = [c for c in math_active if c not in MATH_CORE]
                 complete = len(extras) >= needed_extra
-                status = "✓ COMPLETE" if complete else f"IN PROGRESS  ({len(extras)}/{needed_extra} additional courses done)"
+                status   = "✓ COMPLETE" if complete else f"IN PROGRESS  ({len(extras)}/{needed_extra} additional courses done)"
                 print(_bline(f"  Minor in Mathematics (21 credits)   —   {status}"))
                 print(_bline(f"  School Core (already required): MAT120, MAT125, MAT130, MAT250"))
-                print(_bline(f"  Additional courses taken: {', '.join(extras) if extras else 'none yet'}"))
+                declared_extras = [c for c in math_declared if c not in MATH_CORE]
+                print(_bline(f"  Declared courses: {', '.join(declared_extras) if declared_extras else 'none'}"))
                 if open_n in CSE_MINOR_MATH:
                     print(_bline(f"  ★ {open_elective} counted as Open Elective toward graduation"))
-                if physics_taken:
+                if physics_declared or (open_n in CSE_MINOR_PHYSICS):
                     print(_bsep())
 
-            if physics_taken:
+            if physics_declared or (open_n in CSE_MINOR_PHYSICS):
                 PHYS_CHOICE = {"PHY310","PHY440"}
-                needed_extra = 4   # PHY230/240/250/260 + one of PHY310/PHY440
-                has_choice = bool(taken_norm & PHYS_CHOICE)
-                base_done  = [c for c in physics_taken if c not in PHYS_CHOICE]
-                choice_done = [c for c in physics_taken if c in PHYS_CHOICE]
-                total_done = len(base_done) + (1 if has_choice else 0)
-                complete = total_done >= 5  # PHY230+240+250+260 + one choice = 5
-                status = "✓ COMPLETE" if complete else f"IN PROGRESS  ({total_done}/5 courses done)"
+                has_choice  = bool(set(physics_active) & PHYS_CHOICE)
+                base_done   = [c for c in physics_active if c not in PHYS_CHOICE]
+                choice_done = [c for c in physics_active if c in PHYS_CHOICE]
+                total_done  = len(base_done) + (1 if has_choice else 0)
+                complete    = total_done >= 5
+                status      = "✓ COMPLETE" if complete else f"IN PROGRESS  ({total_done}/5 courses done)"
                 print(_bline(f"  Minor in Physics (15 credits)   —   {status}"))
-                print(_bline(f"  Courses taken: {', '.join(physics_taken)}"))
+                print(_bline(f"  Declared courses: {', '.join(physics_declared) if physics_declared else 'none'}"))
                 if choice_done:
                     print(_bline(f"  Elective slot (PHY310 or PHY440): {choice_done[0]} ✓"))
                 else:
-                    print(_bline(f"  Elective slot (PHY310 or PHY440): not yet taken"))
+                    print(_bline(f"  Elective slot (PHY310 or PHY440): not yet declared"))
                 if open_n in CSE_MINOR_PHYSICS:
                     print(_bline(f"  ★ {open_elective} counted as Open Elective toward graduation"))
 
@@ -1706,13 +1820,18 @@ def main() -> int:
         else set(MIC_ELECTIVES)
     )
 
-    major_electives, open_elective, free_electives, trail_alias_excl = select_electives(
+    major_electives, open_elective, free_electives, trail_alias_excl, selected_minor_courses = select_electives(
         program_key, rows, allowed_codes=allowed_codes, waived_courses=waived_courses,
-        core_excluded=core_excluded)
+        core_excluded=core_excluded, program_credits=credits_by_program)
     all_selected = set(major_electives)|set(free_electives)|({open_elective} if open_elective else set())
     unselected_electives = all_elective_candidates - all_selected
     # FIX: also subtract unselected_electives — trail courses not chosen must not count toward credits
     allowed_codes = (allowed_codes | all_selected) - trail_alias_excl - unselected_electives
+    # FIX #18: subtract minor courses that were neither declared nor chosen as open elective
+    if program_key == "CSE":
+        open_n_str = normalize_course_code(open_elective) if open_elective else ""
+        minor_unused = CSE_MINOR_COURSES - selected_minor_courses - ({open_n_str} if open_n_str else set())
+        allowed_codes -= minor_unused
 
     # Credit mismatch check: warn if transcript credits differ from program.md
     credit_mismatches = detect_credit_mismatches(
@@ -1732,7 +1851,8 @@ def main() -> int:
 
     # Print elective summary AFTER prereq computation so prereq warnings are shown
     print_elective_summary(major_electives, open_elective, program_key, free_electives=free_electives,
-                           rows=rows, prereq_failures=prereq_failures)
+                           rows=rows, prereq_failures=prereq_failures,
+                           selected_minor_courses=selected_minor_courses)
     print_report(
         args.transcript, args.program_name, total, per_course, by_course,
         required_credits, allowed_codes=allowed_codes,
