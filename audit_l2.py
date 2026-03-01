@@ -474,7 +474,12 @@ def run_audit(args) -> dict:
         rows, credits_by_program, program_key, allowed_codes=allowed_codes)
     print_credit_mismatch_warning(credit_mismatches)
 
-    prereq_map = CSE_PREREQS if program_key=="CSE" else MIC_PREREQS
+    # FIX #19: merge both prereq maps so cross-program electives (e.g. MIC412/413 selected as
+    # a CSE open elective) are validated against their own program's prereq chain.
+    # Own-program entries take precedence on any key collision.
+    _other_prereqs = MIC_PREREQS if program_key == "CSE" else CSE_PREREQS
+    _own_prereqs   = CSE_PREREQS if program_key == "CSE" else MIC_PREREQS
+    prereq_map = {**_other_prereqs, **_own_prereqs}
     passed_set = build_passed_set(rows, prereq_map=prereq_map, waived_courses=waived_courses)
     baseline   = compute_baseline_credits(rows, allowed_codes, credits_by_program, program_key)
 

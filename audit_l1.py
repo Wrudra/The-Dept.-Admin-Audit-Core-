@@ -1513,7 +1513,7 @@ def select_electives_cse(
     eligible_primary = [t for t,c in trail_taken.items() if len(c)>=2] or list(trail_taken.keys())
     if not eligible_primary:
         print("  No elective courses found in transcript for CSE trails.")
-        return [],"",[], _trail_alias_excl
+        return [], "", [], _trail_alias_excl, set()  # FIX: return 5-tuple; missing set() caused unpack crash
 
     primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses):", eligible_primary)
     primary_pool = trail_taken[primary_name]
@@ -1839,7 +1839,12 @@ def main() -> int:
     print_credit_mismatch_warning(credit_mismatches)
 
     pkey       = program_key
-    prereq_map = CSE_PREREQS if pkey=="CSE" else MIC_PREREQS
+    # FIX #19: merge both prereq maps so cross-program electives (e.g. MIC412 selected as
+    # a CSE open elective) are still validated against their own program's prereq chain.
+    # Active program entries take precedence on any key collision.
+    _other_prereqs = MIC_PREREQS if pkey == "CSE" else CSE_PREREQS
+    _own_prereqs   = CSE_PREREQS if pkey == "CSE" else MIC_PREREQS
+    prereq_map = {**_other_prereqs, **_own_prereqs}   # own program wins on conflict
     passed_set = build_passed_set(rows, prereq_map=prereq_map, waived_courses=waived_courses)
     baseline   = compute_baseline_credits(rows, allowed_codes, credits_by_program, pkey)
 
