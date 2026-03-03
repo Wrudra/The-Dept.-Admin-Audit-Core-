@@ -300,6 +300,7 @@ MIC_PREREQS: dict[str, list] = {
     "ENG105":  [frozenset({"ENG103"})],
     "BEN205":  [frozenset({"ENG103"})],
     "ENG111":  [frozenset({"ENG103"})],
+    "CHE101":  [],                        # MIC: no MAT350 prerequisite for CHE101
     "CHE201":  [frozenset({"CHE101"})],
     "CHE202":  [frozenset({"CHE101"})],
     "CHE202L": [frozenset({"CHE101L"})],
