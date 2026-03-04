@@ -771,14 +771,17 @@ def print_credit_mismatch_warning(mismatches: dict[str, tuple[float, float]]) ->
     print(_bline("The courses below have different credit values in the transcript vs the program knowledge file."))
     print(_bline("Program-defined credits are authoritative and have been used for all calculations."))
     print(_bsep())
+    print(_TTOP)
     print(_THDR)
     print(_TROW_SEP)
-    for code in sorted(mismatches):
+    sorted_codes = sorted(mismatches)
+    for i, code in enumerate(sorted_codes):
         t_cr, p_cr = mismatches[code]
         status = (f"Transcript listed {t_cr:.1f} cr  →  "
                   f"Overridden with program.md value: {p_cr:.1f} cr")
         print(_trow(code, p_cr, "—", status))
-        print(_TROW_SEP)
+        if i < len(sorted_codes) - 1:
+            print(_TROW_SEP)
     print(_TBOT)
     print(_bbot())
     print()
@@ -827,12 +830,16 @@ def print_grade_anomaly_warning(anomalies: dict[str, list[tuple[str, str]]]) -> 
     print(_bline("If also in-curriculum, its credits enter the CGPA denominator with 0 GP — same as F."))
     print(_bline("Any courses that require it as a prerequisite will also be blocked."))
     print(_bsep())
+    print(_TTOP)
     print(_THDR)
     print(_TROW_SEP)
-    for code in sorted(anomalies):
-        for grade, semester in anomalies[code]:
-            status = f"Grade '{grade}' is not a valid NSU grade — treated as non-passing (semester: {semester})"
-            print(_trow(code, "—", grade, status))
+    rows_list = [(code, grade, semester)
+                 for code in sorted(anomalies)
+                 for grade, semester in anomalies[code]]
+    for i, (code, grade, semester) in enumerate(rows_list):
+        status = f"Grade '{grade}' is not a valid NSU grade — treated as non-passing (semester: {semester})"
+        print(_trow(code, "—", grade, status))
+        if i < len(rows_list) - 1:
             print(_TROW_SEP)
     print(_TBOT)
     print(_bbot())
@@ -913,11 +920,23 @@ def reason_not_counted(
         return "waived — counts in Credit Completed only (excluded from Credit Counted & CGPA)"
     if core_excluded and n in core_excluded:
         if n in CSE_BIO_INTERNSHIP_SLOT:
-            if n == "BIO103L":
-                return "1-credit slot claimed by CSE498R/I — only one of BIO103L / CSE498R / CSE498I may count"
-            else:  # CSE498R or CSE498I excluded
-                return "1-credit slot claimed by BIO103L — only one of BIO103L / CSE498R / CSE498I may count"
-        return "choice slot already filled by a higher-grade course from the same group"
+            # FIX Bug 1 (revised): only enter the internship-slot branch when at least
+            # one *other* CSE_BIO_INTERNSHIP_SLOT member is also in core_excluded.
+            # This guards against BIO103L being excluded for a completely different
+            # reason (e.g. MIC science-pair choice slot) where CSE498R/I are absent
+            # from core_excluded, causing the old logic to wrongly name them as the
+            # "chosen" course.
+            _excl_n = {normalize_course_code(c) for c in core_excluded}
+            _other_slot_excluded = (CSE_BIO_INTERNSHIP_SLOT - {n}) & _excl_n
+            if _other_slot_excluded:
+                _chosen_set = CSE_BIO_INTERNSHIP_SLOT - _excl_n
+                _chosen_str = next(iter(_chosen_set)) if _chosen_set else "another option"
+                return (f"1-credit slot claimed by {_chosen_str} — "
+                        "only one of BIO103L / CSE498R / CSE498I may count")
+        # FIX Bug 2 & 3: the old message unconditionally said "higher-grade course",
+        # which is factually wrong whenever the admin manually selects a lower-grade
+        # or same-grade course.  Use neutral wording that is accurate in all cases.
+        return "choice slot filled by another course from the same group"
     if unselected_electives and n in unselected_electives:
         # Course IS a known elective for this program — never show "not part of curriculum".
         # FIX #13: only show "not selected" if the student actually passed it.
@@ -1563,7 +1582,11 @@ def select_electives_cse(
         print("  No outside-curriculum courses found in transcript for open elective.")
     return major_electives, open_elective, [], _trail_alias_excl, selected_minor_n
 
-def select_electives_mic(rows: list[dict]) -> tuple[list[str],str,list[str],set]:
+def select_electives_mic(
+    rows: list[dict],
+    program_credits: Optional[dict[str,dict[str,float]]] = None,
+    program_key: Optional[str] = None,
+) -> tuple[list[str],str,list[str],set]:
     taken = set(_get_taken_courses(rows))
     _major_core_req = MIC_REQUIRED_CATEGORIES.get("Major Core",set())
     major_pool  = [c for c in MIC_ELECTIVES if c in taken and c not in _major_core_req]
@@ -1573,15 +1596,18 @@ def select_electives_mic(rows: list[dict]) -> tuple[list[str],str,list[str],set]
                    and _mic_course_category(c) is None
                    and normalize_course_code(c) in NSU_CATALOG_EXPANDED]
 
+    def _disp(c: str) -> str:
+        return _course_display(c, rows, program_credits, program_key)
+
     print("\n" + _btop())
     print(_bline("MIC ELECTIVE SELECTION"))
     print(_bline("Rule: 3 major electives + 3 free electives"))
     print(_bbot())
     print("\n  Available major elective courses:\n")
-    for c in major_pool: print(f"    {_course_display(c,rows)}")
+    for c in major_pool: print(f"    {_disp(c)}")
     if not major_pool: print("    (none)")
     print("\n  Free elective candidates (outside-curriculum + unselected major electives):\n")
-    for c in free_avail+major_pool: print(f"    {_course_display(c,rows)}")
+    for c in free_avail+major_pool: print(f"    {_disp(c)}")
     if not free_avail and not major_pool: print("    (none)")
     print()
 
@@ -1590,7 +1616,7 @@ def select_electives_mic(rows: list[dict]) -> tuple[list[str],str,list[str],set]
     for i in range(1,4):
         if not remaining: print(f"  No more elective courses (have {i-1} of 3)."); break
         c = _prompt_pick(f"\nMajor elective {i} of 3:", remaining,
-                         display=[_course_display(x,rows) for x in remaining])
+                         display=[_disp(x) for x in remaining])
         major_electives.append(c)
         remaining = [x for x in remaining if x!=c]
 
@@ -1607,7 +1633,7 @@ def select_electives_mic(rows: list[dict]) -> tuple[list[str],str,list[str],set]
                 print(f"  No more courses available (selected {i - 1} of 3).")
                 break
             c = _prompt_pick(f"Free elective {i} of 3:", free_pool,
-                             display=[_course_display(x, rows) for x in free_pool])
+                             display=[_disp(x) for x in free_pool])
             if i == 1:
                 open_elect = c
             else:
@@ -1630,7 +1656,9 @@ def select_electives(
                                     program_credits=program_credits,
                                     program_key=program_key)
     if program_key == "MIC":
-        maj, oe, fe, ta = select_electives_mic(rows)
+        maj, oe, fe, ta = select_electives_mic(rows,
+                                               program_credits=program_credits,
+                                               program_key=program_key)
         return maj, oe, fe, ta, set()
     return [], "", [], set(), set()
 

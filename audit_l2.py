@@ -443,7 +443,7 @@ def run_audit(args) -> dict:
         if cse_excl:
             print("\n  CSE GED choice resolution (one course per slot):")
             for c in sorted(cse_excl):
-                print(f"    {c} excluded — a higher-grade course fills the same slot.")
+                print(f"    {c} excluded — choice slot filled by another course from the same group.")
             print()
         core_excluded = core_excluded | cse_excl
         allowed_codes = allowed_codes - cse_excl
