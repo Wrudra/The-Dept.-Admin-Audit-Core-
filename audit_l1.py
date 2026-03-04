@@ -158,6 +158,10 @@ NSU_CATALOG: Set[str] = {
     "MAT370","MAT480","MAT481","MAT482","MAT483","MAT485",
     # Minor in Physics courses
     "PHY230","PHY240","PHY250","PHY260","PHY310","PHY440",
+    # CSE trail theory courses missing from main catalog entries
+    # (appear only as cross-listed or lab variants above; theory codes added here)
+    "CSE257","CSE326","CSE413","CSE414","CSE417","CSE419","CSE422",
+    "CSE426","CSE467","CSE473","CSE485","CSE486","CSE598",
     "PHI101","PHI104","PHI401","PHR110","PHR112","PHR113","PHR114","PHR114L","PHR120","PHR120L",
     "PHR121","PHR122","PHR122L","PHR123","PHR124","PHR124L","PHR210","PHR210L","PHR211","PHR211L",
     "PHR212","PHR212L","PHR213","PHR214","PHR215","PHR215L","PHR221","PHR221L","PHR222","PHR222L",
@@ -1015,10 +1019,10 @@ def print_report(
     print(_bsep())
     if required_credits is not None:
         cr_ok = "✓ MET" if credit_completed >= required_credits else "✗ NOT MET"
-        print(_bline(f"CREDIT COUNTED    :  {total:.1f}   (courses with grades; basis for CGPA)"))
+        print(_bline(f"CREDIT COUNTED    :  {total:.1f}   (A–F grades in curriculum; CGPA denominator)"))
         print(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f} / {required_credits} required   [{cr_ok}]"))
     else:
-        print(_bline(f"CREDIT COUNTED    :  {total:.1f}"))
+        print(_bline(f"CREDIT COUNTED    :  {total:.1f}   (A–F grades in curriculum; CGPA denominator)"))
         print(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f}"))
     print(_bbot())
     print()
@@ -1231,7 +1235,9 @@ def _course_display(code: str, rows: list[dict],
         if program_credits and program_key:
             if n not in program_credits.get(program_key, {}):
                 cr = min(cr, 3.0)
-        return f"{code:<10}  ({int(cr) if cr == int(cr) else cr} cr, {best['grade']})"
+        cr_display = int(cr) if cr == int(cr) else cr
+        warn = "  ⚠ only 1 credit" if cr == 1.0 else ""
+        return f"{code:<10}  ({cr_display} cr, {best['grade']}){warn}"
     return code
 
 def _get_taken_courses(rows: list[dict]) -> list[str]:
@@ -1606,9 +1612,9 @@ def select_electives_mic(
     print("\n  Available major elective courses:\n")
     for c in major_pool: print(f"    {_disp(c)}")
     if not major_pool: print("    (none)")
-    print("\n  Free elective candidates (outside-curriculum + unselected major electives):\n")
-    for c in free_avail+major_pool: print(f"    {_disp(c)}")
-    if not free_avail and not major_pool: print("    (none)")
+    print("\n  Free elective candidates (outside-curriculum NSU courses):\n")
+    for c in free_avail: print(f"    {_disp(c)}")
+    if not free_avail: print("    (none)")
     print()
 
     major_electives: list[str] = []
@@ -1622,6 +1628,18 @@ def select_electives_mic(
 
     free_pool   = free_avail + [c for c in major_pool if c not in set(major_electives) and c not in free_avail]
     free_pool   = [c for c in free_pool if c not in set(major_electives)]
+    # FIX Bug 7: exclude 0-credit courses entirely — they can never contribute credits.
+    # 1-credit courses remain but are flagged with ⚠ in _course_display().
+    def _eff_cr(c: str) -> float:
+        n = normalize_course_code(c)
+        if program_credits and program_key and n in program_credits.get(program_key, {}):
+            return program_credits[program_key][n]
+        att = [r for r in rows if normalize_course_code(r["course_code"]) == n]
+        passing = [a for a in att if is_passing(a["grade"])]
+        if passing:
+            return min(max(passing, key=lambda a: GRADE_RANK.get(a["grade"], 0))["credits"], 3.0)
+        return 0.0
+    free_pool   = [c for c in free_pool if _eff_cr(c) > 0.0]
     open_elect  = ""
     free_extras: list[str] = []
     if not free_pool:

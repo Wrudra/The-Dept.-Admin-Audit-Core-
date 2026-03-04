@@ -67,7 +67,6 @@ def compute_deficiencies(result: dict) -> dict:
     credit_completed = result.get("credit_completed") or 0.0
     cgpa             = result.get("cgpa") or 0.0
     prereq_failures  = result.get("prereq_failures") or {}
-    allowed_codes    = result.get("allowed_codes") or set()
     program_codes    = result.get("program_codes") or {}
     major_electives  = result.get("major_electives") or []
     open_elective    = result.get("open_elective") or ""
