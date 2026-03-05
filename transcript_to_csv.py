@@ -96,6 +96,10 @@ END_RE_FALLBACK = re.compile(
     r'\s*$'
 )
 
+# Intersession keyword without a valid 4-digit year (OCR garbles the year)
+# Used as a fallback when SEMESTER_RE fails to find a valid Intersession header.
+_INTERSESSION_WORD_RE = re.compile(r'\bIntersession\b', re.IGNORECASE)
+
 # Lines/tokens to skip entirely
 _SKIP_RE = re.compile(
     r'Semester\s+Credit|TGPA|CGPA|Summary|Total\s+Credit|Grade\s+Point'
@@ -272,6 +276,8 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     text = _normalize_text(text)
     rows = []
     current_semester = None
+    # Track the highest year seen so far; used to filter anomalously old semester matches.
+    _max_year_seen = 0
 
     # Pre-merge wrapped lines: if a line ends mid-number (no grade found)
     # and the NEXT line starts with a digit, merge them.
@@ -303,9 +309,30 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
         if sem_matches:
             # Use the LAST semester pattern seen on this line
             m = sem_matches[-1]
-            current_semester = f"{m.group(1).capitalize()} {m.group(2)}"
+            candidate_sem  = f"{m.group(1).capitalize()} {m.group(2)}"
+            candidate_year = int(m.group(2))
+            # Reject semester matches whose year is implausibly far in the past.
+            # Threshold: if we've already seen a year Y and this match gives a
+            # year more than 2 years earlier, it's almost certainly OCR noise
+            # (e.g. 'Spring 2020490' from a garbled 'Intersession 2023' header).
+            if _max_year_seen > 0 and (_max_year_seen - candidate_year) > 2:
+                if debug:
+                    print(f"  [SEM-SKIP] suspicious year {candidate_year} "
+                          f"(max seen {_max_year_seen}): {line[:60]}",
+                          file=sys.stderr)
+            else:
+                current_semester = candidate_sem
+                _max_year_seen = max(_max_year_seen, candidate_year)
+                if debug:
+                    print(f"  [SEM] → {current_semester}  (line: {line[:80]})",
+                          file=sys.stderr)
+        elif _INTERSESSION_WORD_RE.search(line):
+            # 'Intersession' keyword found but year is garbled (OCR noise).
+            # Infer the best semester name from the most recent year seen.
+            inferred_year = str(_max_year_seen) if _max_year_seen else '2023'
+            current_semester = f"Intersession {inferred_year}"
             if debug:
-                print(f"  [SEM] → {current_semester}  (line: {line[:80]})",
+                print(f"  [SEM-INFER] → {current_semester}  (line: {line[:80]})",
                       file=sys.stderr)
 
         if current_semester is None:
