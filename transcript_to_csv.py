@@ -108,8 +108,32 @@ def _enhance(img: "Image.Image") -> "Image.Image":
     return sharpened
 
 
+def _enhance_r(img: "Image.Image") -> "Image.Image":
+    """
+    Alternative enhancement that uses only the red channel.
+    NSU transcripts carry a blue circular watermark; the watermark has high
+    B values but only medium-to-high R values, while black text has low R.
+    Extracting R (and boosting contrast) suppresses the blue watermark, making
+    rows obscured by it readable in OCR. Falls back to grayscale for non-RGB.
+    """
+    if img.mode == "RGB":
+        r, _g, _b = img.split()
+        gray = r
+    else:
+        gray = img.convert("L")
+    enhanced  = ImageEnhance.Contrast(gray).enhance(2.5)
+    sharpened = ImageEnhance.Sharpness(enhanced).enhance(1.5)
+    return sharpened
+
+
 def _ocr(img: "Image.Image") -> str:
     processed = _enhance(img)
+    return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+
+
+def _ocr_r(img: "Image.Image") -> str:
+    """OCR using the R-channel enhancement (watermark-suppressing pass)."""
+    processed = _enhance_r(img)
     return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
 
 
@@ -341,10 +365,12 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     return rows
 
 
-def parse_page(img: "Image.Image", debug: bool = False) -> list[dict]:
+def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False) -> list[dict]:
     """
     Parse one page image.  Tries two-column split first; if the split yields
-    very few rows, falls back to full-width OCR.
+    very few rows, falls back to full-width OCR.  When r_pass=True an additional
+    R-channel pass is run to recover rows obscured by a coloured watermark
+    (useful for JPEG/image scans; not needed for PDF-converted pages).
     """
     # Full-width OCR (always done – used as fallback)
     full_text  = _ocr(img)
@@ -358,20 +384,58 @@ def parse_page(img: "Image.Image", debug: bool = False) -> list[dict]:
 
     # Pick the richer result
     if len(split_rows) >= len(full_rows):
+        best = split_rows
         if debug:
             print(f"  [SPLIT] Using column-split result "
                   f"({len(split_rows)} rows vs {len(full_rows)} full-width)",
                   file=sys.stderr)
-        return split_rows
     else:
+        best = full_rows
         if debug:
             print(f"  [SPLIT] Falling back to full-width result "
                   f"({len(full_rows)} rows vs {len(split_rows)} split)",
                   file=sys.stderr)
-        return full_rows
+
+    # Supplementary R-channel pass: recovers rows obscured by a coloured watermark.
+    # Only enabled for image scans (r_pass=True); PDF-converted pages are already
+    # monochrome and the R-pass only introduces OCR noise on them.
+    if r_pass and img.mode == "RGB":
+        r_supp  = (_parse_column(_ocr_r(left_img),  debug=False)
+                 + _parse_column(_ocr_r(right_img), debug=False)
+                 + _parse_column(_ocr_r(img),        debug=False))
+        before  = len(best)
+        best    = _merge_rows(best, r_supp)
+        if debug and len(best) > before:
+            print(f"  [R-PASS] recovered {len(best) - before} additional row(s)",
+                  file=sys.stderr)
+
+    return best
+
+def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
+    """
+    Merge two OCR pass results.
+    - Rows whose course code is only in *supplementary* are appended (new recoveries).
+    - Where both passes found the same code, prefer the *primary* result unless
+      its credit is non-standard, in which case try the supplementary credit.
+    - Duplicates within supplementary are handled via seen_codes tracking.
+    """
+    seen_codes: set[str]        = {r["Course_Code"] for r in primary}
+    primary_by_code: dict[str, dict] = {r["Course_Code"]: r for r in primary}
+    out = list(primary)
+    for row in supplementary:
+        code = row["Course_Code"]
+        if code not in seen_codes:
+            # Row completely missed by primary pass — add it
+            out.append(row)
+            seen_codes.add(code)
+        elif code in primary_by_code:
+            # Both passes found this code; patch credit if primary is non-standard
+            existing = primary_by_code[code]
+            if existing["Credits"] not in STANDARD_CREDITS and row["Credits"] in STANDARD_CREDITS:
+                existing["Credits"] = row["Credits"]
+    return out
 
 
-# ── deduplication ──────────────────────────────────────────────────────────────
 
 def _deduplicate(rows: list[dict]) -> list[dict]:
     """
@@ -425,10 +489,14 @@ def main() -> None:
     pages = _get_page_images(src)
     print(f"  Pages:  {len(pages)}", file=sys.stderr)
 
+    # Enable the R-channel watermark-suppression pass for image files only.
+    # PDF pages are already clean monochrome renders where the R-pass adds noise.
+    is_image = src.suffix.lower() in IMAGE_EXTS
+
     all_rows: list[dict] = []
     for idx, page in enumerate(pages, 1):
         print(f"  OCR page {idx} …", file=sys.stderr)
-        rows = parse_page(page, debug=args.debug)
+        rows = parse_page(page, debug=args.debug, r_pass=is_image)
         print(f"    → {len(rows)} course rows extracted", file=sys.stderr)
         all_rows.extend(rows)
 
