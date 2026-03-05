@@ -58,12 +58,6 @@ VALID_GRADES: set[str] = {
 STANDARD_CREDITS = {"0.0", "1.0", "1.5", "3.0"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
-# Semester header: Fall / Spring / Summer / Intersession + plausible year.
-# No trailing boundary: '20(?:0\d|1\d|2\d)' captures exactly 4 digits so
-# '202250' correctly yields '2022' even though extra digits follow.
-_SEMESTER_PAT = r'\b(Fall|Spring|Summer|Intersession)\s+(20(?:0\d|1\d|2\d))'
-SEMESTER_RE   = re.compile(_SEMESTER_PAT, re.IGNORECASE)
-
 # NSU course code: exactly 3 uppercase letters + 3 digits (tolerates I/l/O/S noise)
 # + optional trailing letter (e.g. CSE115L, PHY108L, CSE499A)
 # NSU uses exclusively 3-letter department prefixes; requiring {3} prevents
@@ -95,10 +89,6 @@ END_RE_FALLBACK = re.compile(
     r'(?:\s+\d{1,3}\.?\d*)?'     # CP - not captured
     r'\s*$'
 )
-
-# Intersession keyword without a valid 4-digit year (OCR garbles the year)
-# Used as a fallback when SEMESTER_RE fails to find a valid Intersession header.
-_INTERSESSION_WORD_RE = re.compile(r'\bIntersession\b', re.IGNORECASE)
 
 # Lines/tokens to skip entirely
 _SKIP_RE = re.compile(
@@ -275,9 +265,6 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     """
     text = _normalize_text(text)
     rows = []
-    current_semester = None
-    # Track the highest year seen so far; used to filter anomalously old semester matches.
-    _max_year_seen = 0
 
     # Pre-merge wrapped lines: if a line ends mid-number (no grade found)
     # and the NEXT line starts with a digit, merge them.
@@ -286,11 +273,9 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     i = 0
     while i < len(raw_lines):
         line = raw_lines[i].strip()
-        # Merge continuation if this line ends with a bare number and next starts with digit
         if (lines
                 and END_RE.search(lines[-1]) is None
                 and re.match(r'^\d', line)
-                and not SEMESTER_RE.search(line)
                 and not COURSE_CODE_RE.search(line)):
             lines[-1] = lines[-1] + ' ' + line
             i += 1
@@ -302,40 +287,6 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
         if not line:
             continue
         if _SKIP_RE.search(line):
-            continue
-
-        # ── semester header detection ────────────────────────────────────────
-        sem_matches = list(SEMESTER_RE.finditer(line))
-        if sem_matches:
-            # Use the LAST semester pattern seen on this line
-            m = sem_matches[-1]
-            candidate_sem  = f"{m.group(1).capitalize()} {m.group(2)}"
-            candidate_year = int(m.group(2))
-            # Reject semester matches whose year is implausibly far in the past.
-            # Threshold: if we've already seen a year Y and this match gives a
-            # year more than 2 years earlier, it's almost certainly OCR noise
-            # (e.g. 'Spring 2020490' from a garbled 'Intersession 2023' header).
-            if _max_year_seen > 0 and (_max_year_seen - candidate_year) > 2:
-                if debug:
-                    print(f"  [SEM-SKIP] suspicious year {candidate_year} "
-                          f"(max seen {_max_year_seen}): {line[:60]}",
-                          file=sys.stderr)
-            else:
-                current_semester = candidate_sem
-                _max_year_seen = max(_max_year_seen, candidate_year)
-                if debug:
-                    print(f"  [SEM] → {current_semester}  (line: {line[:80]})",
-                          file=sys.stderr)
-        elif _INTERSESSION_WORD_RE.search(line):
-            # 'Intersession' keyword found but year is garbled (OCR noise).
-            # Infer the best semester name from the most recent year seen.
-            inferred_year = str(_max_year_seen) if _max_year_seen else '2023'
-            current_semester = f"Intersession {inferred_year}"
-            if debug:
-                print(f"  [SEM-INFER] → {current_semester}  (line: {line[:80]})",
-                      file=sys.stderr)
-
-        if current_semester is None:
             continue
 
         # ── course + grade extraction ────────────────────────────────────────
@@ -380,11 +331,11 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
             "Course_Code": course_code,
             "Credits":     credits,
             "Grade":       grade,
-            "Semester":    current_semester,
+            "Semester":    "N/A",
         })
 
         if debug:
-            print(f"  [ROW]  {course_code}  {credits}  {grade}  {current_semester}",
+            print(f"  [ROW]  {course_code}  {credits}  {grade}",
                   file=sys.stderr)
 
     return rows
