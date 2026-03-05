@@ -50,6 +50,13 @@ try:
 except ImportError:
     _HAS_PDF = False
 
+try:
+    import cv2
+    import numpy as np
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+
 # ── constants ──────────────────────────────────────────────────────────────────
 VALID_GRADES: set[str] = {
     "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F", "W", "I", "X"
@@ -135,6 +142,39 @@ def _ocr_r(img: "Image.Image") -> str:
     """OCR using the R-channel enhancement (watermark-suppressing pass)."""
     processed = _enhance_r(img)
     return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+
+
+def _remove_watermark_inpaint(img: "Image.Image") -> "Image.Image":
+    """
+    Use OpenCV HSV colour masking + Telea inpainting to erase the blue
+    circular watermark from an RGB scan, then return the cleaned PIL Image.
+
+    Approach (from StackOverflow best practice for coloured-stamp removal):
+      1. Convert to HSV; isolate the blue stamp pixels by hue/saturation range.
+      2. Dilate the mask slightly so edge fringe pixels are also covered.
+      3. cv2.inpaint() reconstructs the pixels under the mask from local
+         neighbourhood values — restoring the printing beneath the stamp.
+    """
+    if not _HAS_CV2 or img.mode != "RGB":
+        return img
+    bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    # Blue watermark: hue 95-135 (OpenCV 0-179 scale), saturation > 55
+    lo = np.array([95,  55, 60],  dtype=np.uint8)
+    hi = np.array([135, 255, 255], dtype=np.uint8)
+    mask = cv2.inRange(hsv, lo, hi)
+    # Dilate by 3 px to cover feathered stamp edges
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.dilate(mask, kernel, iterations=2)
+    # Inpaint: Telea algorithm works best for thin overlays
+    inpainted = cv2.inpaint(bgr, mask, inpaintRadius=4, flags=cv2.INPAINT_TELEA)
+    return Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
+
+
+def _ocr_inpaint(img: "Image.Image") -> str:
+    """OCR on a watermark-inpainted version of the image."""
+    cleaned = _remove_watermark_inpaint(img)
+    return _ocr(cleaned)
 
 
 def _get_page_images(src: Path) -> list:
@@ -365,7 +405,7 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     return rows
 
 
-def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False) -> list[dict]:
+def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, inpaint_pass: bool = False) -> list[dict]:
     """
     Parse one page image.  Tries two-column split first; if the split yields
     very few rows, falls back to full-width OCR.  When r_pass=True an additional
@@ -407,6 +447,21 @@ def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False) ->
         best    = _merge_rows(best, r_supp)
         if debug and len(best) > before:
             print(f"  [R-PASS] recovered {len(best) - before} additional row(s)",
+                  file=sys.stderr)
+
+    # Inpaint pass: uses OpenCV HSV masking + Telea inpainting to physically
+    # remove the blue watermark before OCR.  This can recover rows where the
+    # watermark ink directly overwrites credit/grade columns.
+    if inpaint_pass and _HAS_CV2 and img.mode == "RGB":
+        clean_img             = _remove_watermark_inpaint(img)
+        clean_left, clean_right = _split_columns(clean_img)
+        ip_supp = (_parse_column(_ocr(clean_left),  debug=False)
+                 + _parse_column(_ocr(clean_right), debug=False)
+                 + _parse_column(_ocr(clean_img),   debug=False))
+        before = len(best)
+        best   = _merge_rows(best, ip_supp)
+        if debug and len(best) > before:
+            print(f"  [INPAINT-PASS] recovered {len(best) - before} additional row(s)",
                   file=sys.stderr)
 
     return best
@@ -496,7 +551,7 @@ def main() -> None:
     all_rows: list[dict] = []
     for idx, page in enumerate(pages, 1):
         print(f"  OCR page {idx} …", file=sys.stderr)
-        rows = parse_page(page, debug=args.debug, r_pass=is_image)
+        rows = parse_page(page, debug=args.debug, r_pass=is_image, inpaint_pass=is_image)
         print(f"    → {len(rows)} course rows extracted", file=sys.stderr)
         all_rows.extend(rows)
 

@@ -1,3 +1,9 @@
-# No third-party dependencies.
-# This project uses Python standard library only:
-#   argparse, csv, decimal, pathlib, re, sys, typing
+# transcript_to_csv.py dependencies
+pillow
+pytesseract
+pdf2image
+numpy
+opencv-python-headless>=4.0
+# System deps (install separately):
+#   macOS:  brew install tesseract poppler
+#   Ubuntu: sudo apt install tesseract-ocr poppler-utils
