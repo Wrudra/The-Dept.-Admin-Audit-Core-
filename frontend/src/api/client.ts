@@ -1,0 +1,110 @@
+import axios from "axios";
+
+/** All API calls go through /api/* (proxied to http://localhost:8000 in dev,
+ *  served from the same origin in production via Nginx). */
+const client = axios.create({
+  baseURL: "/api",
+  withCredentials: true, // send/receive the HttpOnly JWT cookie
+  timeout: 120_000, // 2 min — audit runs can be slow
+});
+
+client.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  },
+);
+
+export default client;
+
+// ── Typed helpers ─────────────────────────────────────────────────────────────
+
+export interface User {
+  user_id: string;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+}
+
+export interface AuditResult {
+  program: string;
+  total_valid_credits: number;
+  required_credits: number;
+  credit_completed: number;
+  cgpa: number;
+  waived_courses: string[];
+  waiver_notes: string[];
+  major_electives: string[];
+  free_electives: string[];
+  open_elective: string | null;
+  prereq_failures: Record<string, string>;
+  per_course_credits: Record<string, number>;
+  console_log: string;
+}
+
+export interface HistoryRun {
+  run_id: string;
+  program: string;
+  status: string;
+  transcript_filename: string | null;
+  created_at: string;
+  completed_at: string | null;
+  cgpa: number | null;
+  credit_completed: number | null;
+  required_credits: number | null;
+}
+
+export interface AdminRecentRun extends HistoryRun {
+  user_email: string;
+  user_name: string;
+}
+
+export interface AdminStats {
+  total_runs: number;
+  total_users: number;
+  runs_by_program: Record<string, number>;
+  avg_cgpa: number | null;
+  avg_credits: number | null;
+  recent_runs: AdminRecentRun[];
+}
+
+export const authApi = {
+  me: () => client.get<User>("/auth/me"),
+  logout: () => client.post("/auth/logout"),
+};
+
+export const auditApi = {
+  run: (
+    transcript: File,
+    program: string,
+    answers: Record<string, unknown>,
+  ) => {
+    const fd = new FormData();
+    fd.append("transcript", transcript);
+    fd.append("program", program);
+    fd.append("answers", JSON.stringify(answers));
+    return client.post<{ run_id: string; result: AuditResult }>(
+      "/audit/run",
+      fd,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      },
+    );
+  },
+  get: (runId: string) =>
+    client.get<{ result: AuditResult }>(`/audit/${runId}`),
+};
+
+export const historyApi = {
+  list: (params?: { limit?: number; offset?: number }) =>
+    client.get<{ runs: HistoryRun[] }>("/history/", { params }),
+  get: (runId: string) => client.get(`/history/${runId}`),
+  delete: (runId: string) => client.delete(`/history/${runId}`),
+};
+
+export const adminApi = {
+  stats: () => client.get<AdminStats>("/admin/stats"),
+};

@@ -18,7 +18,11 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nsu_audit} -d ${POSTGRES_DB:-nsu_audit_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-nsu_audit} -d ${POSTGRES_DB:-nsu_audit_db}",
+        ]
       interval: 5s
       retries: 10
     ports:

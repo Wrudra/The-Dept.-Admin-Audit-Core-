@@ -51,11 +51,21 @@ async def callback(
     code_verifier = request.session.pop("pkce_verifier", None)
 
     if not saved_state or state != saved_state:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state — possible CSRF.")
+        return RedirectResponse(url=f"{settings.frontend_url}/login?error=state", status_code=302)
     if not code_verifier:
-        raise HTTPException(status_code=400, detail="PKCE verifier missing from session.")
+        return RedirectResponse(url=f"{settings.frontend_url}/login?error=session", status_code=302)
 
-    claims   = await exchange_code(code, code_verifier)
+    try:
+        claims = await exchange_code(code, code_verifier)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return RedirectResponse(
+                url=f"{settings.frontend_url}/login?error=domain", status_code=302
+            )
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/login?error=auth", status_code=302
+        )
+
     user     = await _upsert_user(db, claims)
     is_admin = user.email in settings.admin_emails_list
     token    = create_token(user.id, user.google_sub, user.email, user.display_name, is_admin)
