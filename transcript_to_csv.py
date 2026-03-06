@@ -65,6 +65,17 @@ VALID_GRADES: set[str] = {
 STANDARD_CREDITS = {"0.0", "1.0", "1.5", "3.0"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
+# Valid NSU 3-letter department prefixes (derived from audit_l1.py catalog).
+# Used to reject OCR noise that accidentally matches the course-code pattern
+# (e.g. watermark fragments like "NOK773").
+VALID_PREFIXES: frozenset = frozenset({
+    "ACT", "ANT", "ARC", "BBT", "BEN", "BIO", "BSC", "BUS", "CEE", "CHE",
+    "CHN", "CSE", "DEV", "ECO", "EEE", "EMB", "ENG", "ENV", "ETE", "ETH",
+    "FIN", "GEO", "HAS", "HIS", "HRM", "INB", "LAW", "LBA", "LLB", "LLM",
+    "MAT", "MCJ", "MGT", "MIC", "MIS", "MKT", "PAD", "PBH", "PHI", "PHR",
+    "PHY", "POL", "PPG", "PSY", "SCM", "SOC", "TNM", "WMS",
+})
+
 # NSU course code: exactly 3 uppercase letters + 3 digits (tolerates I/l/O/S noise)
 # + optional trailing letter (e.g. CSE115L, PHY108L, CSE499A)
 # NSU uses exclusively 3-letter department prefixes; requiring {3} prevents
@@ -432,6 +443,15 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
             continue
 
         course_code = _parse_course_code(code_matches[-1].group(0))
+
+        # Reject codes whose 3-letter prefix is not a known NSU department.
+        # This filters out watermark OCR noise (e.g. "NOK773") before it reaches
+        # the merge logic, regardless of which pass produced it.
+        if course_code[:3] not in VALID_PREFIXES:
+            if debug:
+                print(f"  [BAD-PREFIX] {course_code}  {line[:80]}", file=sys.stderr)
+            continue
+
         credits     = _normalize_credit(raw_credit, cc_raw=cc_raw)
 
         rows.append({
@@ -514,13 +534,15 @@ def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, in
     # CamScanner-style pass: illumination normalisation (background division +
     # adaptive threshold).  Suppresses the watermark by absorbing it into the
     # background estimate, potentially recovering rows not found by other passes.
+    # Uses strict merge (same as full+split) to reject standard-credit codes
+    # that look like OCR misreads of already-found courses (e.g. CHE110 vs CHE101).
     if camscanner_pass and _HAS_CV2:
         cs_left, cs_right = _split_columns(img)
         cs_supp = (_parse_column(_ocr_camscanner(cs_left),  debug=False)
                  + _parse_column(_ocr_camscanner(cs_right), debug=False)
                  + _parse_column(_ocr_camscanner(img),      debug=False))
         before = len(best)
-        best   = _merge_rows(best, cs_supp)
+        best   = _merge_rows_strict(best, cs_supp)
         if debug and len(best) > before:
             print(f"  [CAMSCANNER-PASS] recovered {len(best) - before} additional row(s)",
                   file=sys.stderr)
@@ -554,12 +576,18 @@ def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
 
 def _merge_rows_strict(primary: list[dict], supplementary: list[dict]) -> list[dict]:
     """
-    Like _merge_rows but only adds new codes from supplementary when their
-    credit is non-standard.  Used for the full-width vs column-split merge:
-    watermark noise tends to produce fake codes with guessable standard credits
-    (e.g. NOK773 3.0 A), whereas genuinely missed rows typically have garbled
-    credits (e.g. MIC207 4 A).  Standard-credit new codes from the noisier
-    full-width pass are therefore treated as likely false positives.
+    Like _merge_rows but guards against OCR misreads of existing codes.
+
+    A new code from supplementary is accepted only if:
+      - Its credit is non-standard (clearly garbled → real miss), OR
+      - No code with the same 3-letter prefix, same total length, AND the same
+        multiset of suffix characters already exists in primary.
+
+    The anagram check on the suffix catches digit-transposition misreads
+    (e.g. CHE110 ← CHE101: sorted("110") == sorted("101") → blocked) while
+    allowing genuinely new courses whose digits happen to share one character
+    with an existing code (e.g. MIC316 vs MIC315: sorted("316") ≠ sorted("315")
+    → allowed).
     """
     seen_codes: set[str]             = {r["Course_Code"] for r in primary}
     primary_by_code: dict[str, dict] = {r["Course_Code"]: r for r in primary}
@@ -567,9 +595,23 @@ def _merge_rows_strict(primary: list[dict], supplementary: list[dict]) -> list[d
     for row in supplementary:
         code = row["Course_Code"]
         if code not in seen_codes:
-            if row["Credits"] not in STANDARD_CREDITS:   # non-standard → real miss
+            if row["Credits"] not in STANDARD_CREDITS:
+                # Non-standard credit → clearly a real miss, always accept
                 out.append(row)
                 seen_codes.add(code)
+            else:
+                # Standard credit: block if suffix is a character-permutation of
+                # an existing same-prefix same-length code (digit transposition).
+                prefix = code[:3]
+                suffix = code[3:]
+                clash = any(
+                    c[:3] == prefix and len(c) == len(code)
+                    and sorted(c[3:]) == sorted(suffix)
+                    for c in seen_codes
+                )
+                if not clash:
+                    out.append(row)
+                    seen_codes.add(code)
         elif code in primary_by_code:
             existing = primary_by_code[code]
             if existing["Credits"] not in STANDARD_CREDITS and row["Credits"] in STANDARD_CREDITS:
