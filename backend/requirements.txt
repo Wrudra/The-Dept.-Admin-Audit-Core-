@@ -1,0 +1,23 @@
+# ── FastAPI + ASGI server ─────────────────────────────────────────────────────
+fastapi>=0.115
+uvicorn[standard]>=0.34
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.30
+alembic>=1.14
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+python-jose[cryptography]>=3.3   # JWT signing / verification
+
+# ── HTTP client (Google OAuth token exchange) ─────────────────────────────────
+httpx>=0.28
+
+# ── Config ────────────────────────────────────────────────────────────────────
+pydantic-settings>=2.8
+
+# ── Session middleware ────────────────────────────────────────────────────────
+itsdangerous>=2.2                # used by starlette.middleware.sessions
+
+# ── File uploads (Phase 2) ────────────────────────────────────────────────────
+python-multipart>=0.0.20

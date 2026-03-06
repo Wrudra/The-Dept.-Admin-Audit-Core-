@@ -24,3 +24,21 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Alembic auto-generated offline SQL scripts
+alembic/versions/*.sql
+
+# Upload temp directory
+uploads/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Docker data
+pg_data/
+
+# Environment secrets — NEVER commit these
+.env
+.env.local
+.env.*.local

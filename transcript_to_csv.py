@@ -648,6 +648,31 @@ def write_csv(rows: list[dict], out_path: Path) -> None:
         writer.writerows(rows)
 
 
+def convert_to_csv_bytes(src: Path) -> bytes:
+    """Convert a PDF or image transcript to CSV bytes.
+
+    Called by the FastAPI audit endpoint to pre-process uploaded PDFs/images
+    before passing the resulting CSV to the audit engine.
+    """
+    import io as _io
+    pages = _get_page_images(src)
+    is_image = src.suffix.lower() in IMAGE_EXTS
+
+    all_rows: list[dict] = []
+    for page in pages:
+        rows = parse_page(page, debug=False, r_pass=is_image,
+                          inpaint_pass=is_image, camscanner_pass=is_image)
+        all_rows.extend(rows)
+
+    all_rows = _deduplicate(all_rows)
+
+    buf = _io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=["Course_Code", "Credits", "Grade", "Semester"])
+    writer.writeheader()
+    writer.writerows(all_rows)
+    return buf.getvalue().encode("utf-8")
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
