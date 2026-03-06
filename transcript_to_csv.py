@@ -76,7 +76,8 @@ COURSE_CODE_RE = re.compile(r'\b(' + _CODE_BODY + r')\b')
 _SPACED_CODE_RE = re.compile(r'\b([A-Z]{3})\s([0-9]{3}[A-Z]?)\b')
 
 # Grade pattern: allow 't' as OCR artefact for '+' (B+ → Bt, C+ → Ct, D+ → Dt)
-_GRADE_SET = r'(?:A[-]?|B[+\-t]?|C[+\-t]?|D[+\-t]?|[FWIX])'
+# Also accept lowercase (OCR sometimes lowercases grades, e.g 'a' instead of 'A')
+_GRADE_SET = r'(?:[Aa][-]?|[Bb][+\-t]?|[Cc][+\-t]?|[Dd][+\-t]?|[FfWwIiXx])'
 
 # Primary: credit  grade  [CC]  [CP]  at end of line.
 # \s* between credit and grade handles fused OCR like '730A'.
@@ -133,6 +134,42 @@ def _enhance_r(img: "Image.Image") -> "Image.Image":
     return sharpened
 
 
+def _enhance_camscanner(img: "Image.Image") -> "Image.Image":
+    """
+    CamScanner-style illumination normalisation.
+
+    Steps (mirrors what CamScanner does internally):
+      1. Convert to grayscale.
+      2. Estimate the background illumination with a large Gaussian blur
+         (the blurred image approximates a smooth lighting map with no text).
+      3. Divide the original by the background map — this cancels uneven
+         lighting AND suppresses any consistent-colour overlay (e.g. the blue
+         watermark) because its contribution is absorbed into the background
+         estimate and then divided away.
+      4. Rescale to [0, 255] and apply adaptive thresholding to whiten the
+         background and sharpen the text (the "Magic Color" step).
+    """
+    if not _HAS_CV2:
+        return _enhance(img)
+    gray = np.array(img.convert("L"), dtype=np.float32)
+    # Large kernel: must be bigger than any character glyph so text pixels
+    # don't affect the background estimate.  Use ~5 % of the page height.
+    h, w  = gray.shape
+    ksize = max(51, int(min(h, w) * 0.05) | 1)   # odd number
+    background = cv2.GaussianBlur(gray, (ksize, ksize), 0)
+    # Divide; clamp to avoid div-by-zero on pure-black regions
+    normalised = gray / (background + 1e-5) * 255.0
+    normalised = np.clip(normalised, 0, 255).astype(np.uint8)
+    # Adaptive threshold finishes the binarisation (GAUSSIAN_C, block=51, C=15)
+    binarised  = cv2.adaptiveThreshold(
+        normalised, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=51, C=15
+    )
+    return Image.fromarray(binarised)
+
+
 def _ocr(img: "Image.Image") -> str:
     processed = _enhance(img)
     return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
@@ -141,6 +178,12 @@ def _ocr(img: "Image.Image") -> str:
 def _ocr_r(img: "Image.Image") -> str:
     """OCR using the R-channel enhancement (watermark-suppressing pass)."""
     processed = _enhance_r(img)
+    return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+
+
+def _ocr_camscanner(img: "Image.Image") -> str:
+    """OCR using CamScanner-style illumination normalisation."""
+    processed = _enhance_camscanner(img)
     return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
 
 
@@ -243,9 +286,9 @@ def _normalize_text(text: str) -> str:
 
 def _normalize_grade(raw: str) -> str:
     """Fix OCR artefacts in a captured grade string."""
-    g = raw.strip()
+    g = raw.strip().upper()
     # '+' is sometimes OCR'd as 't' (B+ → Bt, C+ → Ct, D+ → Dt)
-    if len(g) == 2 and g[1] == 't':
+    if len(g) == 2 and g[1] == 'T':
         g = g[0] + '+'
     return g
 
@@ -405,7 +448,7 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
     return rows
 
 
-def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, inpaint_pass: bool = False) -> list[dict]:
+def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, inpaint_pass: bool = False, camscanner_pass: bool = False) -> list[dict]:
     """
     Parse one page image.  Tries two-column split first; if the split yields
     very few rows, falls back to full-width OCR.  When r_pass=True an additional
@@ -422,15 +465,19 @@ def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, in
     right_rows = _parse_column(_ocr(right_img), debug=debug)
     split_rows = left_rows + right_rows
 
-    # Pick the richer result
+    # Pick the richer result as primary.
+    # For image scans (r_pass=True) also merge in anything the other pass uniquely
+    # found — e.g. a row visible full-width but not in the split (MIC207 case).
+    # For clean PDF renders we keep the original single-pick logic to avoid
+    # pulling in false positives from the noisier full-width pass.
     if len(split_rows) >= len(full_rows):
-        best = split_rows
+        best = _merge_rows_strict(split_rows, full_rows) if r_pass else split_rows
         if debug:
             print(f"  [SPLIT] Using column-split result "
                   f"({len(split_rows)} rows vs {len(full_rows)} full-width)",
                   file=sys.stderr)
     else:
-        best = full_rows
+        best = _merge_rows_strict(full_rows, split_rows) if r_pass else full_rows
         if debug:
             print(f"  [SPLIT] Falling back to full-width result "
                   f"({len(full_rows)} rows vs {len(split_rows)} split)",
@@ -464,6 +511,20 @@ def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, in
             print(f"  [INPAINT-PASS] recovered {len(best) - before} additional row(s)",
                   file=sys.stderr)
 
+    # CamScanner-style pass: illumination normalisation (background division +
+    # adaptive threshold).  Suppresses the watermark by absorbing it into the
+    # background estimate, potentially recovering rows not found by other passes.
+    if camscanner_pass and _HAS_CV2:
+        cs_left, cs_right = _split_columns(img)
+        cs_supp = (_parse_column(_ocr_camscanner(cs_left),  debug=False)
+                 + _parse_column(_ocr_camscanner(cs_right), debug=False)
+                 + _parse_column(_ocr_camscanner(img),      debug=False))
+        before = len(best)
+        best   = _merge_rows(best, cs_supp)
+        if debug and len(best) > before:
+            print(f"  [CAMSCANNER-PASS] recovered {len(best) - before} additional row(s)",
+                  file=sys.stderr)
+
     return best
 
 def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
@@ -485,6 +546,31 @@ def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
             seen_codes.add(code)
         elif code in primary_by_code:
             # Both passes found this code; patch credit if primary is non-standard
+            existing = primary_by_code[code]
+            if existing["Credits"] not in STANDARD_CREDITS and row["Credits"] in STANDARD_CREDITS:
+                existing["Credits"] = row["Credits"]
+    return out
+
+
+def _merge_rows_strict(primary: list[dict], supplementary: list[dict]) -> list[dict]:
+    """
+    Like _merge_rows but only adds new codes from supplementary when their
+    credit is non-standard.  Used for the full-width vs column-split merge:
+    watermark noise tends to produce fake codes with guessable standard credits
+    (e.g. NOK773 3.0 A), whereas genuinely missed rows typically have garbled
+    credits (e.g. MIC207 4 A).  Standard-credit new codes from the noisier
+    full-width pass are therefore treated as likely false positives.
+    """
+    seen_codes: set[str]             = {r["Course_Code"] for r in primary}
+    primary_by_code: dict[str, dict] = {r["Course_Code"]: r for r in primary}
+    out = list(primary)
+    for row in supplementary:
+        code = row["Course_Code"]
+        if code not in seen_codes:
+            if row["Credits"] not in STANDARD_CREDITS:   # non-standard → real miss
+                out.append(row)
+                seen_codes.add(code)
+        elif code in primary_by_code:
             existing = primary_by_code[code]
             if existing["Credits"] not in STANDARD_CREDITS and row["Credits"] in STANDARD_CREDITS:
                 existing["Credits"] = row["Credits"]
@@ -551,7 +637,7 @@ def main() -> None:
     all_rows: list[dict] = []
     for idx, page in enumerate(pages, 1):
         print(f"  OCR page {idx} …", file=sys.stderr)
-        rows = parse_page(page, debug=args.debug, r_pass=is_image, inpaint_pass=is_image)
+        rows = parse_page(page, debug=args.debug, r_pass=is_image, inpaint_pass=is_image, camscanner_pass=is_image)
         print(f"    → {len(rows)} course rows extracted", file=sys.stderr)
         all_rows.extend(rows)
 
