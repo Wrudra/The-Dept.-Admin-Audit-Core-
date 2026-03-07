@@ -38,7 +38,6 @@ from audit_l1 import (
     MIC_SOCIAL_CHOICES, MIC_SCIENCE_CHOICES, MIC_REQUIRED_CATEGORIES,
     get_ncl_labs,
     WAIVER_CREDITS_EACH,
-    AuditConfig,
 )
 from audit_l2 import (
     run_audit,
@@ -262,8 +261,8 @@ def main() -> int:
                         help="Non-interactive: auto-select best options (AI agent / pipeline mode)")
     args = parser.parse_args()
 
-    # Set shared config for this run
-    _l1._CONFIG = AuditConfig(no_interact=args.no_interact)
+    # Propagate no-interact flag into shared module
+    _l1.NO_INTERACT = args.no_interact
 
     if not args.transcript.exists():
         print(f"  Error: transcript not found: {args.transcript}", file=sys.stderr)

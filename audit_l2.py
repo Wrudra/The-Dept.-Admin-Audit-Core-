@@ -65,8 +65,7 @@ from audit_l1 import (
     get_required_credits_for_waivers,
     detect_credit_mismatches, print_credit_mismatch_warning,
     detect_grade_anomalies, print_grade_anomaly_warning,
-    AuditConfig,
-    AK_ENG102_WAIVED, AK_MAT112_WAIVED,
+    NO_INTERACT,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -120,13 +119,13 @@ def handle_waivers(
     print(_bsep())
     print(_bline(""))
 
-    if _prompt_yes_no("Is ENG102 waived for this student?", answer_key=AK_ENG102_WAIVED):
+    if _prompt_yes_no("Is ENG102 waived for this student?"):
         waived_courses.add("ENG102")
         print(_bline("  → ENG102 waived."))
     else:
         print(_bline("  → ENG102 not waived (grade will count in Credit Counted and CGPA)."))
 
-    if _prompt_yes_no("Is MAT112 waived for this student?", answer_key=AK_MAT112_WAIVED):
+    if _prompt_yes_no("Is MAT112 waived for this student?"):
         waived_courses.add("MAT112")
         print(_bline("  → MAT112 waived."))
     else:
@@ -395,18 +394,11 @@ def print_report(
 # ══════════════════════════════════════════════════════════════════════════════
 #  Shared audit runner (used by L3 as well)
 # ══════════════════════════════════════════════════════════════════════════════
-def run_audit(args, config: Optional[AuditConfig] = None) -> dict:
+def run_audit(args) -> dict:
     """
     Run the full L2 audit (waivers → choices → electives → credit tally → CGPA).
     Returns a result dict that L3 can feed into compute_deficiencies() and print_report().
-
-    config: optional AuditConfig for this run.
-        AuditConfig(no_interact=True)     — non-interactive pipeline mode.
-        AuditConfig(answers={AK_*: ...})  — pre-supplied answers for web/API mode.
-        If None, the current _l1._CONFIG is used unchanged (CLI has already set it).
     """
-    if config is not None:
-        _l1._CONFIG = config
     if not args.transcript.exists():
         raise FileNotFoundError(f"Transcript not found: {args.transcript}")
 
@@ -535,6 +527,7 @@ def run_audit(args, config: Optional[AuditConfig] = None) -> dict:
         "prereq_failures":    prereq_failures,
         "passed_set":         passed_set,
         "credit_completed":   credit_completed,
+        "selected_minor_courses": selected_minor_courses,
         "rows":               rows,
         "program_codes":      program_codes,
     }
@@ -553,8 +546,8 @@ def main() -> int:
                         help="Non-interactive: auto-select best options (AI agent / pipeline mode)")
     args = parser.parse_args()
 
-    # Set shared config for this run
-    _l1._CONFIG = AuditConfig(no_interact=args.no_interact)
+    # Propagate the flag into the shared module
+    _l1.NO_INTERACT = args.no_interact
 
     # FIX #6: validate program early
     program_key = (args.program_name or "").strip().upper()

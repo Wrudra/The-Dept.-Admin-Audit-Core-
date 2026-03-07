@@ -2,7 +2,7 @@
 
 Design:
   - Parametrised over every CSV in Test Cases/ (by program derived from filename).
-  - Runs the audit engine in --no-interact mode (AuditConfig(no_interact=True)).
+  - Runs the audit engine in --no-interact mode (NO_INTERACT=True).
   - Smoke-tests that the engine completes without exception and returns a sane result.
   - Optionally asserts a specific credit / CGPA if a companion .expected.json exists.
 
@@ -59,10 +59,10 @@ def test_audit_case(csv_path: Path, program: str) -> None:
     with the required keys.  Optional companion .expected.json files enforce
     specific credit / CGPA values.
     """
+    import audit_l1
     import audit_l2
-    from audit_l1 import AuditConfig
 
-    config = AuditConfig(no_interact=True, answers={})
+    audit_l1.NO_INTERACT = True
     args   = types.SimpleNamespace(
         transcript=csv_path,
         program_name=program,
@@ -70,7 +70,10 @@ def test_audit_case(csv_path: Path, program: str) -> None:
         no_interact=True,
     )
 
-    result = audit_l2.run_audit(args, config)
+    try:
+        result = audit_l2.run_audit(args)
+    finally:
+        audit_l1.NO_INTERACT = False
 
     # ── Structural assertions ─────────────────────────────────────────────────
     required_keys = {

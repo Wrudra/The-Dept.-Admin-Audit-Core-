@@ -29,6 +29,63 @@ export interface User {
   is_admin: boolean;
 }
 
+export interface CourseDetail {
+  course: string;
+  credits: number | null;
+  grade: string;
+  counted: boolean;
+  label: string | null; // "Major Elective" | "Open Elective" | "Free Elective" | null
+  reason: string | null; // reason for not counting
+}
+
+export interface MissingCategory {
+  category: string;
+  courses: string[];
+}
+
+export interface DeficiencyFailure {
+  course: string;
+  reason: string;
+}
+
+export interface Deficiency {
+  eligible: boolean;
+  credit_shortfall: number;
+  probation: boolean;
+  missing_mandatory: MissingCategory[];
+  prereq_failures_list: DeficiencyFailure[];
+  retake_note: string;
+}
+
+export interface AuditChoicePick {
+  key: string;
+  type: "pick";
+  prompt: string;
+  options: string[];
+  display: string[];
+  selected: string;
+}
+
+export interface AuditChoiceYesNo {
+  key: string;
+  type: "yes_no";
+  prompt: string;
+  selected: boolean;
+}
+
+export type AuditChoice = AuditChoicePick | AuditChoiceYesNo;
+
+export interface MinorProgram {
+  name: string;
+  total_credits: number;
+  complete: boolean;
+  progress: string;
+  core_courses?: string[];
+  declared_courses: string[];
+  choice_slot?: { options: string[]; selected: string | null };
+  open_elective_course: string | null;
+}
+
 export interface AuditResult {
   program: string;
   total_valid_credits: number;
@@ -43,6 +100,14 @@ export interface AuditResult {
   prereq_failures: Record<string, string>;
   per_course_credits: Record<string, number>;
   console_log: string;
+  // Level-3 extended fields (null for legacy stored results)
+  credit_passed: number | null;
+  credit_counted: number | null;
+  total_grade_points: number | null;
+  academic_standing: string | null;
+  per_course_detail: CourseDetail[];
+  deficiency: Deficiency | null;
+  minor_programs: MinorProgram[] | null;
 }
 
 export interface HistoryRun {
@@ -77,6 +142,20 @@ export const authApi = {
 };
 
 export const auditApi = {
+  /** Discover choices (no DB save) — used for the configure step. */
+  discover: (transcript: File, program: string) => {
+    const fd = new FormData();
+    fd.append("transcript", transcript);
+    fd.append("program", program);
+    fd.append("answers", "{}");
+    fd.append("save", "false");
+    return client.post<{ result: AuditResult; choices: AuditChoice[] }>(
+      "/audit/run",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
+  /** Run audit with user-selected answers and persist to DB. */
   run: (
     transcript: File,
     program: string,
@@ -86,13 +165,14 @@ export const auditApi = {
     fd.append("transcript", transcript);
     fd.append("program", program);
     fd.append("answers", JSON.stringify(answers));
-    return client.post<{ run_id: string; result: AuditResult }>(
-      "/audit/run",
-      fd,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      },
-    );
+    fd.append("save", "true");
+    return client.post<{
+      run_id: string;
+      result: AuditResult;
+      choices: AuditChoice[];
+    }>("/audit/run", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
   },
   get: (runId: string) =>
     client.get<{ result: AuditResult }>(`/audit/${runId}`),

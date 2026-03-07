@@ -45,7 +45,6 @@ import argparse
 import csv
 import re
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Set
 
@@ -77,16 +76,10 @@ def _bline(text: str = "") -> str: return f"  ║  {text:<{_BW-2}}║"
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  NSU Offered Course Catalog
-#  Source: nsu_catalog.json (extracted from the NSU RDS portal, Spring 2026).
-#  Cross-listed courses (e.g. CSE311/ETE335) are stored as single entries; the
-#  expanded set below splits them so individual code lookups work.
-#  To update the catalog: edit nsu_catalog.json — no Python source changes needed.
+#  Source: NSU Offered Course List (Spring 2026), scraped from the RDS portal.
+#  Cross-listed courses (e.g. CSE311/ETE335) are included under each code.
 # ══════════════════════════════════════════════════════════════════════════════
-import json as _json
-_CATALOG_PATH = Path(__file__).with_name("nsu_catalog.json")
-NSU_CATALOG: Set[str] = set(_json.loads(_CATALOG_PATH.read_text(encoding="utf-8")))
-# ── legacy inline entries kept as a safety net in case the JSON file is missing ──
-_LEGACY_CATALOG: Set[str] = {
+NSU_CATALOG: Set[str] = {
     "ACT201","ACT202","ACT310","ACT320","ACT360","ACT370","ACT380","ACT410","ACT430","ACT460",
     "AMCS501","AMCS504","AMCS506","AMCS507","AMCS510/MAT483","ANT101","ARC111","ARC112","ARC121","ARC122",
     "ARC123","ARC131","ARC133","ARC200","ARC213","ARC214","ARC215","ARC241","ARC242","ARC251",
@@ -182,8 +175,6 @@ _LEGACY_CATALOG: Set[str] = {
     "POL104","POL202","PPG555","PPG560","PSY101","PSY101L","SCM310","SCM320","SCM450","SCM603",
     "SCM605","SCM607","SCM608","SOC101","SOC103","SOC201","TNM201","WMS201",
 }
-# Merge legacy entries (covers any edge case where JSON is regenerated without them)
-NSU_CATALOG |= _LEGACY_CATALOG
 
 # Expanded catalog: splits cross-listed entries so individual code lookups work.
 NSU_CATALOG_EXPANDED: Set[str] = {
@@ -243,7 +234,7 @@ CSE_PREREQS: dict[str, list] = {
     "PHY107L": [frozenset({"MAT120"})],
     "PHY108":  [frozenset({"MAT130"}),frozenset({"PHY107"})],
     "PHY108L": [frozenset({"MAT130"}),frozenset({"PHY107"})],
-    "CHE101":  [frozenset({"MAT350"})],
+    "CHE101":  [],
     "CSE173":  [frozenset({"CSE115"})],
     "CSE215":  [frozenset({"CSE173"})],
     "CSE215L": [frozenset({"CSE173"})],
@@ -453,53 +444,12 @@ MIC_SCIENCE_CHOICES: list[tuple[str,str]] = [
 ]
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Audit configuration
-#  Phase 0: replaces the bare NO_INTERACT global with a typed config object.
-#  CLI usage : main() / run_audit() create AuditConfig(no_interact=True) and
-#              assign it to _CONFIG before calling into the audit functions.
-#  API usage : caller creates AuditConfig(answers={AK_*: value, ...}) and
-#              passes it to run_audit(args, config=...) so no prompts are issued.
+#  Non-interactive / batch mode flag
+#  FIX #10: Set NO_INTERACT=True via --no-interact to skip all prompts.
+#           Auto-selects best grade for choice slots; first available for electives.
+#           Suitable for AI-agent or pipeline invocations.
 # ══════════════════════════════════════════════════════════════════════════════
-@dataclass
-class AuditConfig:
-    """Runtime configuration for a single audit run."""
-    no_interact: bool = False
-    answers: dict = field(default_factory=dict)
-
-# Well-known answer keys — used by the web API to pass pre-supplied choices.
-AK_ENG102_WAIVED   = "waiver_eng102"      # bool
-AK_MAT112_WAIVED   = "waiver_mat112"      # bool
-AK_GED_POLITICS    = "ged_politics"       # str: course code
-AK_GED_ECONOMICS   = "ged_economics"      # str: course code
-AK_GED_SOCIETY     = "ged_society"        # str: course code
-AK_BIO_INTERN_SLOT = "bio_internship_slot" # str: course code
-AK_MIC_LANGUAGE    = "mic_language"       # str: course code
-AK_MIC_HUMANITIES  = "mic_humanities"     # str: course code
-AK_MIC_SOCIAL      = "mic_social"         # str: course code
-AK_MIC_SCIENCE     = "mic_science_pair"   # str: "THEORY+LAB"
-AK_PRIMARY_TRAIL   = "primary_trail"      # str: trail name
-AK_PRIMARY_C1      = "primary_trail_c1"   # str: course code
-AK_PRIMARY_C2      = "primary_trail_c2"   # str: course code
-AK_SECONDARY_TRAIL = "secondary_trail"    # str: trail name
-AK_SECONDARY_C1    = "secondary_trail_c1" # str: course code
-AK_MINOR_MATH      = "minor_math_courses"    # list[str]: course codes to declare
-AK_MINOR_PHYSICS   = "minor_physics_courses" # list[str]: course codes to declare
-AK_OPEN_ELECTIVE   = "open_elective"      # str: course code
-AK_MIC_MAJOR_1     = "mic_major_1"        # str: course code
-AK_MIC_MAJOR_2     = "mic_major_2"        # str: course code
-AK_MIC_MAJOR_3     = "mic_major_3"        # str: course code
-AK_MIC_FREE_1      = "mic_free_1"         # str: course code
-AK_MIC_FREE_2      = "mic_free_2"         # str: course code
-AK_MIC_FREE_3      = "mic_free_3"         # str: course code
-
-# Module-level config instance — shared by all functions in this module.
-# CLI/pipeline: reassigned in main() or run_audit().
-# API/web:      caller sets _l1._CONFIG = AuditConfig(answers={...}) before invoking run_audit().
-_CONFIG: AuditConfig = AuditConfig()
-
-# Backward-compatibility alias — kept so that existing code importing NO_INTERACT
-# still compiles.  The prompt functions now read _CONFIG.no_interact instead.
-NO_INTERACT: bool = False  # legacy; prefer _CONFIG.no_interact for new code
+NO_INTERACT: bool = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Core helpers
@@ -1182,13 +1132,6 @@ _GED_GROUP_LABELS: list[str] = [
     "Society / Environment",
 ]
 
-# Map GED group label → answer key for API/web use
-_GED_ANSWER_KEYS: dict[str, str] = {
-    "Politics / Government": AK_GED_POLITICS,
-    "Economics":             AK_GED_ECONOMICS,
-    "Society / Environment": AK_GED_SOCIETY,
-}
-
 def resolve_cse_choice_groups(rows: list[dict]) -> set[str]:
     """
     For each CSE GED choice group (one slot, pick exactly ONE course):
@@ -1227,7 +1170,7 @@ def resolve_cse_choice_groups(rows: list[dict]) -> set[str]:
                 f"{c:<10}  (grade: {get_display_grade(by_course[c])})"
                 for c in passed
             ]
-            chosen = _prompt_pick("", passed, display=display, answer_key=_GED_ANSWER_KEYS.get(label, ""))
+            chosen = _prompt_pick("", passed, display=display)
             excluded.update(c for c in passed if c != chosen)
             resolved_lines.append(
                 f"  [{label}]  {chosen}  ({get_display_grade(by_course[chosen])})"
@@ -1249,18 +1192,10 @@ def resolve_cse_choice_groups(rows: list[dict]) -> set[str]:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Interactive helpers (respect NO_INTERACT flag)
 # ══════════════════════════════════════════════════════════════════════════════
-def _prompt_pick(prompt: str, options: list[str], display: Optional[list[str]] = None, answer_key: str = "") -> str:
-    """Numbered menu; returns pre-supplied answer (API), auto-first (no-interact), or reads stdin."""
+def _prompt_pick(prompt: str, options: list[str], display: Optional[list[str]] = None) -> str:
+    """Numbered menu; in NO_INTERACT mode auto-selects option[0] (first = best candidate)."""
     labels = display if display and len(display)==len(options) else options
-    if answer_key and answer_key in _CONFIG.answers:
-        val = _CONFIG.answers[answer_key]
-        if val in options:
-            idx = options.index(val)
-            if prompt: print(prompt)
-            print(f"  [api] → {labels[idx]}")
-            return val
-        # answer not in current options — fall through to auto/interactive
-    if _CONFIG.no_interact or NO_INTERACT:
+    if NO_INTERACT:
         if prompt: print(prompt)
         print(f"  [auto] → {labels[0]}")
         return options[0]
@@ -1274,13 +1209,9 @@ def _prompt_pick(prompt: str, options: list[str], display: Optional[list[str]] =
             if 0<=idx<len(options): return options[idx]
         print("  Invalid input, please try again.\n")
 
-def _prompt_yes_no(prompt: str, answer_key: str = "") -> bool:
-    """Yes/no prompt; returns pre-supplied answer (API), auto-False (no-interact), or reads stdin."""
-    if answer_key and answer_key in _CONFIG.answers:
-        val = bool(_CONFIG.answers[answer_key])
-        print(f"  [api] {prompt} → {'Yes' if val else 'No'}")
-        return val
-    if _CONFIG.no_interact or NO_INTERACT:
+def _prompt_yes_no(prompt: str) -> bool:
+    """Yes/no prompt; in NO_INTERACT mode returns False (conservative default)."""
+    if NO_INTERACT:
         print(f"  [auto] {prompt} → No (default in non-interactive mode)")
         return False
     while True:
@@ -1333,7 +1264,7 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
     lang_passed = passed_from(MIC_LANGUAGE_CHOICES)
     if len(lang_passed) > 1:
         print("\n  LANGUAGE (4th slot) — student passed both BEN205 and ENG111 (pick one):")
-        chosen = _prompt_pick("", lang_passed, display=[_course_display(c,rows) for c in lang_passed], answer_key=AK_MIC_LANGUAGE)
+        chosen = _prompt_pick("", lang_passed, display=[_course_display(c,rows) for c in lang_passed])
         excluded.update(c for c in lang_passed if c!=chosen)
         print(f"  ✓ Language slot: {chosen} selected.")
     elif len(lang_passed)==1:
@@ -1344,7 +1275,7 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
     hum_passed = passed_from(MIC_HUMANITIES_CHOICES)
     if len(hum_passed) > 1:
         print("\n  HUMANITIES — student passed multiple courses (pick one):")
-        chosen = _prompt_pick("", hum_passed, display=[_course_display(c,rows) for c in hum_passed], answer_key=AK_MIC_HUMANITIES)
+        chosen = _prompt_pick("", hum_passed, display=[_course_display(c,rows) for c in hum_passed])
         excluded.update(c for c in hum_passed if c!=chosen)
         print(f"  ✓ Humanities slot: {chosen} selected.")
     elif len(hum_passed)==1:
@@ -1355,7 +1286,7 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
     soc_passed = passed_from(MIC_SOCIAL_CHOICES)
     if len(soc_passed) > 1:
         print("\n  SOCIAL SCIENCES — student passed multiple courses (pick one):")
-        chosen = _prompt_pick("", soc_passed, display=[_course_display(c,rows) for c in soc_passed], answer_key=AK_MIC_SOCIAL)
+        chosen = _prompt_pick("", soc_passed, display=[_course_display(c,rows) for c in soc_passed])
         excluded.update(c for c in soc_passed if c!=chosen)
         print(f"  ✓ Social Sciences slot: {chosen} selected.")
     elif len(soc_passed)==1:
@@ -1374,7 +1305,7 @@ def select_mic_core_choices(rows: list[dict]) -> set[str]:
         chosen_str = _prompt_pick("", pair_opts, display=[
             f"{t} ({get_display_grade(by_course[t])})  +  {l} ({get_display_grade(by_course.get(l,[]))})"
             for t,l in passed_pairs
-        ], answer_key=AK_MIC_SCIENCE)
+        ])
         chosen_theory, chosen_lab = chosen_str.split("+")
         for theory, lab in passed_pairs:
             if theory != chosen_theory:
@@ -1449,14 +1380,7 @@ def resolve_cse_bio_internship_choice(rows: list[dict]) -> set[str]:
         ]
         print(_bline("  Both BIO103L and CSE498R/I passed — choose ONE to count:"))
         print(_bsep())
-        if AK_BIO_INTERN_SLOT in _CONFIG.answers:
-            val = _CONFIG.answers[AK_BIO_INTERN_SLOT]
-            chosen = val if val in options else options[0]
-            idx = options.index(chosen)
-            for i, label in enumerate(display, 1):
-                print(_bline(f"  {i}. {label}"))
-            print(_bline(f"  [api] → {display[idx]}"))
-        elif _CONFIG.no_interact or NO_INTERACT:
+        if NO_INTERACT:
             for i, label in enumerate(display, 1):
                 print(_bline(f"  {i}. {label}"))
             print(_bline(f"  [auto] → {display[0]}"))
@@ -1523,16 +1447,7 @@ def _select_minor_courses_cse(
             display = [_course_display(c, rows, program_credits, program_key) for c in remaining]
             for i, d in enumerate(display, 1):
                 print(f"  {i}. {d}")
-            _ak = AK_MINOR_MATH if "Math" in label else AK_MINOR_PHYSICS
-            if _ak in _CONFIG.answers:
-                _declared = {normalize_course_code(x) for x in _CONFIG.answers[_ak]}
-                for c in remaining:
-                    if normalize_course_code(c) in _declared:
-                        selected_n.add(normalize_course_code(c))
-                        declared_count += 1
-                        print(f"  [api] → {_course_display(c, rows, program_credits, program_key)}  declared.")
-                return
-            if _CONFIG.no_interact or NO_INTERACT:
+            if NO_INTERACT:
                 for c in remaining:
                     selected_n.add(normalize_course_code(c))
                     print(f"  [auto] → {_course_display(c, rows, program_credits, program_key)}  declared.")
@@ -1626,15 +1541,15 @@ def select_electives_cse(
         print("  No elective courses found in transcript for CSE trails.")
         return [], "", [], _trail_alias_excl, set()  # FIX: return 5-tuple; missing set() caused unpack crash
 
-    primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses):", eligible_primary, answer_key=AK_PRIMARY_TRAIL)
+    primary_name = _prompt_pick("\nSelect your PRIMARY trail (need 2 courses):", eligible_primary)
     primary_pool = trail_taken[primary_name]
     print(f"\nCourse 1 of 2 from '{primary_name}':")
-    c1 = _prompt_pick("", primary_pool, display=[_course_display(c,rows) for c in primary_pool], answer_key=AK_PRIMARY_C1)
+    c1 = _prompt_pick("", primary_pool, display=[_course_display(c,rows) for c in primary_pool])
     major_electives.append(c1)
     remaining_primary = [c for c in primary_pool if c!=c1]
     if remaining_primary:
         print(f"\nCourse 2 of 2 from '{primary_name}':")
-        c2 = _prompt_pick("", remaining_primary, display=[_course_display(c,rows) for c in remaining_primary], answer_key=AK_PRIMARY_C2)
+        c2 = _prompt_pick("", remaining_primary, display=[_course_display(c,rows) for c in remaining_primary])
         major_electives.append(c2)
     else:
         print(f"  Only one course in '{primary_name}' from transcript — counting {c1} only.")
@@ -1642,10 +1557,10 @@ def select_electives_cse(
     secondary_opts = [t for t in trail_taken if t != primary_name]
     open_elective = ""
     if secondary_opts:
-        sec_name = _prompt_pick("\nSelect your SECONDARY trail (1 course):", secondary_opts, answer_key=AK_SECONDARY_TRAIL)
+        sec_name = _prompt_pick("\nSelect your SECONDARY trail (1 course):", secondary_opts)
         sec_pool = trail_taken[sec_name]
         print(f"\n1 course from '{sec_name}':")
-        c3 = _prompt_pick("", sec_pool, display=[_course_display(c,rows) for c in sec_pool], answer_key=AK_SECONDARY_C1)
+        c3 = _prompt_pick("", sec_pool, display=[_course_display(c,rows) for c in sec_pool])
         major_electives.append(c3)
 
     # FIX #18: Minor course declaration — must happen BEFORE open pool so
@@ -1668,7 +1583,7 @@ def select_electives_cse(
     ])
     if open_pool:
         print("\nSelect your OPEN ELECTIVE (unselected trail + outside-curriculum NSU courses):")
-        open_elective = _prompt_pick("", open_pool, display=[_course_display(c, rows, program_credits, program_key) for c in open_pool], answer_key=AK_OPEN_ELECTIVE)
+        open_elective = _prompt_pick("", open_pool, display=[_course_display(c, rows, program_credits, program_key) for c in open_pool])
     else:
         print("  No outside-curriculum courses found in transcript for open elective.")
     return major_electives, open_elective, [], _trail_alias_excl, selected_minor_n
@@ -1704,11 +1619,10 @@ def select_electives_mic(
 
     major_electives: list[str] = []
     remaining = list(major_pool)
-    _MIC_MAJOR_KEYS = [AK_MIC_MAJOR_1, AK_MIC_MAJOR_2, AK_MIC_MAJOR_3]
     for i in range(1,4):
         if not remaining: print(f"  No more elective courses (have {i-1} of 3)."); break
         c = _prompt_pick(f"\nMajor elective {i} of 3:", remaining,
-                         display=[_disp(x) for x in remaining], answer_key=_MIC_MAJOR_KEYS[i-1])
+                         display=[_disp(x) for x in remaining])
         major_electives.append(c)
         remaining = [x for x in remaining if x!=c]
 
@@ -1732,13 +1646,12 @@ def select_electives_mic(
         print("\n  No free elective courses available in transcript.")
     else:
         print(f"\nSelect 3 FREE ELECTIVES:\n")
-        _MIC_FREE_KEYS = [AK_MIC_FREE_1, AK_MIC_FREE_2, AK_MIC_FREE_3]
         for i in range(1, 4):
             if not free_pool:
                 print(f"  No more courses available (selected {i - 1} of 3).")
                 break
             c = _prompt_pick(f"Free elective {i} of 3:", free_pool,
-                             display=[_disp(x) for x in free_pool], answer_key=_MIC_FREE_KEYS[i-1])
+                             display=[_disp(x) for x in free_pool])
             if i == 1:
                 open_elect = c
             else:
@@ -1866,7 +1779,7 @@ def print_elective_summary(
 #  Main
 # ══════════════════════════════════════════════════════════════════════════════
 def main() -> int:
-    global _CONFIG
+    global NO_INTERACT
     parser = argparse.ArgumentParser(
         description="Level 1: Credit Tally Engine — total valid credits from transcript."
     )
@@ -1876,7 +1789,7 @@ def main() -> int:
     parser.add_argument("--no-interact",      action="store_true",
                         help="Non-interactive mode: auto-select best options (for AI agent / pipeline use)")
     args = parser.parse_args()
-    _CONFIG = AuditConfig(no_interact=args.no_interact)
+    NO_INTERACT = args.no_interact
 
     if not args.transcript.exists():
         print(f"  Error: transcript not found: {args.transcript}", file=sys.stderr)
@@ -1901,12 +1814,12 @@ def main() -> int:
     print(_bline("Waived courses count toward Credit Completed only (not Credit Counted or CGPA)."))
     print(_bsep())
     print(_bline(""))
-    if _prompt_yes_no("Is ENG102 waived for this student?", answer_key=AK_ENG102_WAIVED):
+    if _prompt_yes_no("Is ENG102 waived for this student?"):
         waived_courses.add("ENG102")
         print(_bline("  → ENG102 waived."))
     else:
         print(_bline("  → ENG102 not waived (grade counts in Credit Counted and CGPA)."))
-    if _prompt_yes_no("Is MAT112 waived for this student?", answer_key=AK_MAT112_WAIVED):
+    if _prompt_yes_no("Is MAT112 waived for this student?"):
         waived_courses.add("MAT112")
         print(_bline("  → MAT112 waived."))
     else:

@@ -648,26 +648,34 @@ def write_csv(rows: list[dict], out_path: Path) -> None:
         writer.writerows(rows)
 
 
-def convert_to_csv_bytes(src: Path) -> bytes:
-    """Convert a PDF or image transcript to CSV bytes.
+# ── public API (used by the web backend) ──────────────────────────────────────
 
-    Called by the FastAPI audit endpoint to pre-process uploaded PDFs/images
-    before passing the resulting CSV to the audit engine.
+def convert_to_csv_bytes(path: Path) -> bytes:
+    """OCR-parse a transcript file and return the result as UTF-8 CSV bytes.
+
+    Mirrors the main() pipeline but writes to an in-memory buffer so the
+    caller doesn't need to manage temporary files.
     """
     import io as _io
-    pages = _get_page_images(src)
-    is_image = src.suffix.lower() in IMAGE_EXTS
 
+    pages = _get_page_images(path)
+    is_image = path.suffix.lower() in IMAGE_EXTS
     all_rows: list[dict] = []
     for page in pages:
-        rows = parse_page(page, debug=False, r_pass=is_image,
-                          inpaint_pass=is_image, camscanner_pass=is_image)
+        rows = parse_page(
+            page,
+            debug=False,
+            r_pass=is_image,
+            inpaint_pass=is_image,
+            camscanner_pass=is_image,
+        )
         all_rows.extend(rows)
-
     all_rows = _deduplicate(all_rows)
 
     buf = _io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=["Course_Code", "Credits", "Grade", "Semester"])
+    writer = csv.DictWriter(
+        buf, fieldnames=["Course_Code", "Credits", "Grade", "Semester"]
+    )
     writer.writeheader()
     writer.writerows(all_rows)
     return buf.getvalue().encode("utf-8")

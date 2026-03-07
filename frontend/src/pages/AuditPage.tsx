@@ -5,13 +5,10 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Divider,
   Fade,
   FormControl,
   FormControlLabel,
-  FormHelperText,
-  Grow,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -26,22 +23,22 @@ import {
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DownloadIcon from "@mui/icons-material/Download";
 import PrintIcon from "@mui/icons-material/Print";
+import TuneIcon from "@mui/icons-material/Tune";
 import { useNavigate } from "react-router-dom";
-import { auditApi, AuditResult } from "../api/client";
+import { auditApi, AuditResult, AuditChoice } from "../api/client";
+import AuditReport from "../components/AuditReport";
 
-type Answers = Record<string, boolean | string | string[]>;
+type Answers = Record<string, boolean | string>;
 
-const STEPS = ["Upload Transcript", "Configure Answers", "Audit Report"];
+const STEPS = ["Upload Transcript", "Configure Choices", "Audit Report"];
 
 export default function AuditPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [program, setProgram] = useState<"CSE" | "MIC">("CSE");
-  const [answers, setAnswers] = useState<Answers>({
-    waiver_eng102: false,
-    waiver_mat112: false,
-  });
+  const [choices, setChoices] = useState<AuditChoice[]>([]);
+  const [answers, setAnswers] = useState<Answers>({});
   const [result, setResult] = useState<AuditResult | null>(null);
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -69,9 +66,58 @@ export default function AuditPage() {
     if (f) setFile(f);
   }
 
-  // ── Step 1 handlers ─────────────────────────────────────────────────────────
-  function toggleBool(key: string) {
-    setAnswers((a) => ({ ...a, [key]: !a[key] }));
+  // ── Discovery: analyze transcript and detect choices ────────────────────────
+  async function handleAnalyze() {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await auditApi.discover(file, program);
+      setChoices(data.choices);
+      const defaults: Answers = {};
+      for (const c of data.choices) {
+        defaults[c.key] = c.selected;
+      }
+      setAnswers(defaults);
+      setResult(data.result);
+      setStep(1);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "Analysis failed. Please try again.";
+      setError(msg);
+      showSnack(msg, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Final audit run with user's choices ─────────────────────────────────────
+  async function handleRun() {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await auditApi.run(file, program, answers);
+      setResult(data.result);
+      setChoices(data.choices);
+      // Sync answers with the (possibly updated) choices
+      const updated: Answers = {};
+      for (const c of data.choices) {
+        updated[c.key] = c.selected;
+      }
+      setAnswers(updated);
+      setStep(2);
+      showSnack("Audit completed successfully!");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "Audit failed. Please try again.";
+      setError(msg);
+      showSnack(msg, "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   // ── Export CSV ────────────────────────────────────────────────────────────
@@ -95,26 +141,9 @@ export default function AuditPage() {
     showSnack("CSV exported successfully.");
   }
 
-  // ── Submit ────────────────────────────────────────────────────────────────
-  async function handleRun() {
-    if (!file) return;
-    setBusy(true);
-    setError("");
-    try {
-      const { data } = await auditApi.run(file, program, answers);
-      setResult(data.result);
-      setStep(2);
-      showSnack("Audit completed successfully!");
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Audit failed. Please try again.";
-      setError(msg);
-      showSnack(msg, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
+  // ── Render choice form elements ─────────────────────────────────────────────
+  const ynChoices = choices.filter((c) => c.type === "yes_no");
+  const pickChoices = choices.filter((c) => c.type === "pick");
 
   return (
     <Box>
@@ -202,13 +231,21 @@ export default function AuditPage() {
                 </Typography>
               </Box>
 
+              {error && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {error}
+                </Alert>
+              )}
+              {busy && <LinearProgress sx={{ mt: 2 }} />}
+
               <Box sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}>
                 <Button
                   variant="contained"
-                  disabled={!file}
-                  onClick={() => setStep(1)}
+                  disabled={!file || busy}
+                  onClick={handleAnalyze}
+                  startIcon={<TuneIcon />}
                 >
-                  Next
+                  {busy ? "Analyzing…" : "Analyze Transcript"}
                 </Button>
               </Box>
             </CardContent>
@@ -216,45 +253,105 @@ export default function AuditPage() {
         </Box>
       </Fade>
 
-      {/* ── Step 1: Answers ────────────────────────────────────────────────── */}
+      {/* ── Step 1: Configure Choices ──────────────────────────────────────── */}
       <Fade in={step === 1} unmountOnExit>
         <Box sx={{ display: step === 1 ? "block" : "none" }}>
-          <Card sx={{ maxWidth: 560 }}>
+          <Card sx={{ maxWidth: 640 }}>
             <CardContent sx={{ p: 3 }}>
               <Typography variant="subtitle1" gutterBottom fontWeight={600}>
-                Waiver Status
+                Audit Choices
               </Typography>
-              <FormHelperText sx={{ mb: 2 }}>
-                Waived courses receive 3 credit hours toward graduation (not
-                counted in CGPA).
-              </FormHelperText>
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={!!answers.waiver_eng102}
-                    onChange={() => toggleBool("waiver_eng102")}
-                  />
-                }
-                label="ENG102 — English waiver"
-                sx={{ display: "flex", mb: 1 }}
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={!!answers.waiver_mat112}
-                    onChange={() => toggleBool("waiver_mat112")}
-                  />
-                }
-                label="MAT112 — Mathematics waiver"
-                sx={{ display: "flex", mb: 3 }}
-              />
-
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                All other choices (trails, electives, GED slots) will be
-                auto-selected based on best grade. You can review them in the
-                report.
+                The following choices were detected from your transcript. Review
+                and modify them before running the final audit.
               </Typography>
+
+              {/* ── Yes / No choices (waivers etc.) ─────────────────────────── */}
+              {ynChoices.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography
+                    variant="overline"
+                    color="text.secondary"
+                    sx={{ mb: 1, display: "block" }}
+                  >
+                    Waivers
+                  </Typography>
+                  {ynChoices.map((c) => (
+                    <FormControlLabel
+                      key={c.key}
+                      control={
+                        <Switch
+                          checked={!!answers[c.key]}
+                          onChange={() =>
+                            setAnswers((a) => ({
+                              ...a,
+                              [c.key]: !a[c.key],
+                            }))
+                          }
+                        />
+                      }
+                      label={c.prompt}
+                      sx={{ display: "flex", mb: 0.5 }}
+                    />
+                  ))}
+                </Box>
+              )}
+
+              {/* ── Pick choices (trails, electives, GED, etc.) ────────────── */}
+              {pickChoices.length > 0 && (
+                <Box>
+                  {ynChoices.length > 0 && <Divider sx={{ my: 2 }} />}
+                  <Typography
+                    variant="overline"
+                    color="text.secondary"
+                    sx={{ mb: 1, display: "block" }}
+                  >
+                    Course Selections
+                  </Typography>
+                  {pickChoices.map((c) => {
+                    if (c.type !== "pick") return null;
+                    const label = c.prompt || `Selection ${c.key}`;
+                    return (
+                      <FormControl
+                        key={c.key}
+                        fullWidth
+                        size="small"
+                        sx={{ mb: 2 }}
+                      >
+                        <InputLabel id={`lbl-${c.key}`}>{label}</InputLabel>
+                        <Select
+                          labelId={`lbl-${c.key}`}
+                          value={(answers[c.key] as string) ?? c.selected}
+                          label={label}
+                          onChange={(e) =>
+                            setAnswers((a) => ({
+                              ...a,
+                              [c.key]: e.target.value,
+                            }))
+                          }
+                        >
+                          {c.options.map((opt: string, i: number) => (
+                            <MenuItem key={opt} value={opt}>
+                              {c.display[i]}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {choices.length === 0 && (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  No interactive choices needed for this transcript. Click "Run
+                  Audit" to proceed.
+                </Typography>
+              )}
 
               {error && (
                 <Alert severity="error" sx={{ mb: 2 }}>
@@ -263,7 +360,13 @@ export default function AuditPage() {
               )}
               {busy && <LinearProgress sx={{ mb: 2 }} />}
 
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mt: 3,
+                }}
+              >
                 <Button onClick={() => setStep(0)} disabled={busy}>
                   Back
                 </Button>
@@ -281,24 +384,11 @@ export default function AuditPage() {
         <Box
           sx={{
             display: step === 2 && result ? "block" : "none",
-            maxWidth: 720,
+            maxWidth: 760,
           }}
         >
           {result && (
             <>
-              <Alert
-                severity={
-                  result.credit_completed >= result.required_credits
-                    ? "success"
-                    : "warning"
-                }
-                sx={{ mb: 3 }}
-              >
-                {result.credit_completed >= result.required_credits
-                  ? `Completed ${result.credit_completed}/${result.required_credits} credits — eligible to graduate!`
-                  : `Completed ${result.credit_completed}/${result.required_credits} credits — ${result.required_credits - result.credit_completed} remaining.`}
-              </Alert>
-
               {/* Export actions */}
               <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
                 <Button
@@ -317,137 +407,17 @@ export default function AuditPage() {
                 >
                   Print / PDF
                 </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<TuneIcon />}
+                  onClick={() => setStep(1)}
+                >
+                  Modify Choices
+                </Button>
               </Box>
 
-              <Grow in timeout={300}>
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Summary
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-                      <Stat label="Program" value={result.program} />
-                      <Stat label="CGPA" value={result.cgpa.toFixed(2)} />
-                      <Stat
-                        label="Credits"
-                        value={`${result.credit_completed} / ${result.required_credits}`}
-                      />
-                      <Stat
-                        label="Valid credits"
-                        value={String(result.total_valid_credits)}
-                      />
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grow>
-
-              {result.waived_courses.length > 0 && (
-                <Grow in timeout={400}>
-                  <Card sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="subtitle1" fontWeight={600}>
-                        Waivers
-                      </Typography>
-                      {result.waiver_notes.length > 0 && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mb: 1 }}
-                        >
-                          {result.waiver_notes.join(" · ")}
-                        </Typography>
-                      )}
-                      <Box
-                        sx={{
-                          mt: 1,
-                          display: "flex",
-                          gap: 1,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {result.waived_courses.map((c) => (
-                          <Chip key={c} label={c} size="small" color="info" />
-                        ))}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grow>
-              )}
-
-              {result.major_electives.length > 0 && (
-                <Grow in timeout={500}>
-                  <Card sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="subtitle1" fontWeight={600}>
-                        Selected Electives
-                      </Typography>
-                      <Box
-                        sx={{
-                          mt: 1,
-                          display: "flex",
-                          gap: 1,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {result.major_electives.map((c) => (
-                          <Chip
-                            key={c}
-                            label={c}
-                            size="small"
-                            color="primary"
-                          />
-                        ))}
-                        {result.open_elective && (
-                          <Chip
-                            label={`${result.open_elective} (open)`}
-                            size="small"
-                            color="secondary"
-                          />
-                        )}
-                        {result.free_electives.map((c) => (
-                          <Chip key={c} label={`${c} (free)`} size="small" />
-                        ))}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grow>
-              )}
-
-              {Object.keys(result.prereq_failures).length > 0 && (
-                <Grow in timeout={600}>
-                  <Card
-                    sx={{
-                      mb: 2,
-                      border: "1px solid",
-                      borderColor: "error.dark",
-                    }}
-                  >
-                    <CardContent>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight={600}
-                        color="error.main"
-                      >
-                        Prerequisite Failures
-                      </Typography>
-                      <Box sx={{ mt: 1 }}>
-                        {Object.entries(result.prereq_failures).map(
-                          ([course, reason]) => (
-                            <Typography
-                              key={course}
-                              variant="body2"
-                              sx={{ mb: 0.5 }}
-                            >
-                              <strong>{course}:</strong> {reason}
-                            </Typography>
-                          ),
-                        )}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grow>
-              )}
+              <AuditReport result={result} />
 
               <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
                 <Button
@@ -456,6 +426,8 @@ export default function AuditPage() {
                     setStep(0);
                     setResult(null);
                     setFile(null);
+                    setChoices([]);
+                    setAnswers({});
                   }}
                 >
                   Run Another
@@ -485,17 +457,6 @@ export default function AuditPage() {
           {snackMsg}
         </Alert>
       </Snackbar>
-    </Box>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <Box sx={{ minWidth: 120 }}>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h6">{value}</Typography>
     </Box>
   );
 }
