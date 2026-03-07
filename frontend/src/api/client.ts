@@ -60,6 +60,8 @@ export interface Deficiency {
 export interface AuditChoicePick {
   key: string;
   type: "pick";
+  group: string;
+  label: string;
   prompt: string;
   options: string[];
   display: string[];
@@ -148,6 +150,23 @@ export const auditApi = {
     fd.append("transcript", transcript);
     fd.append("program", program);
     fd.append("answers", "{}");
+    fd.append("save", "false");
+    return client.post<{ result: AuditResult; choices: AuditChoice[] }>(
+      "/audit/run",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
+  /** Re-discover choices with partial answers (e.g. after trail change). */
+  rediscover: (
+    transcript: File,
+    program: string,
+    answers: Record<string, unknown>,
+  ) => {
+    const fd = new FormData();
+    fd.append("transcript", transcript);
+    fd.append("program", program);
+    fd.append("answers", JSON.stringify(answers));
     fd.append("save", "false");
     return client.post<{ result: AuditResult; choices: AuditChoice[] }>(
       "/audit/run",

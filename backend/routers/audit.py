@@ -227,21 +227,114 @@ def _run_audit_in_thread(content: bytes, program: str, answers: dict) -> dict:
         )
 
         # ── Monkey-patch prompt functions to intercept choices ────────────
+        import inspect as _inspect
+
         _choices: list[dict] = []
-        _idx = [0]   # mutable counter
+        _pick_idx = [0]   # counter for pick choices
+        _yn_idx   = [0]   # counter for yes/no choices
+        _last_heading = [""]  # last non-empty prompt (context for sub-picks)
+        _sub_count = [0]  # sub-pick counter within a heading group
+        _last_print = [""]  # last printed line (context for sub-picks)
 
         _orig_pick_l1 = audit_l1._prompt_pick
         _orig_yn_l1   = audit_l1._prompt_yes_no
         _orig_yn_l2   = audit_l2._prompt_yes_no   # locally-imported copy
 
+        class _TrackingWriter(io.StringIO):
+            """StringIO that also remembers the last non-empty line written."""
+
+            def write(self, s: str) -> int:
+                stripped = s.strip()
+                if stripped:
+                    _last_print[0] = stripped
+                return super().write(s)
+
+        # Map calling function → semantic group
+        _FUNC_GROUP = {
+            "resolve_cse_choice_groups": "ged_core",
+            "select_mic_core_choices":   "mic_core",
+            "select_electives_cse":      "trail",
+            "select_electives_mic":      "mic_elective",
+        }
+
+        def _detect_group() -> str:
+            """Walk the call stack to determine the semantic group."""
+            for fi in _inspect.stack()[2:6]:
+                g = _FUNC_GROUP.get(fi.function)
+                if g:
+                    return g
+            return "other"
+
         def _patched_pick(prompt, options, display=None):
-            key = f"pick_{_idx[0]}"
-            _idx[0] += 1
+            key = f"pick_{_pick_idx[0]}"
+            _pick_idx[0] += 1
             labels = display if display and len(display) == len(options) else options
             # Use pre-supplied answer if it matches a valid option
             selected = answers.get(key)
             if selected not in options:
                 selected = options[0]        # auto-select first (best grade)
+            # Detect semantic group from call stack
+            group = _detect_group()
+            # Build a descriptive label
+            clean_prompt = (prompt or "").strip()
+            if clean_prompt:
+                label = clean_prompt.rstrip(":")
+                _last_heading[0] = label
+                _sub_count[0] = 0
+                # Refine group for trail / MIC elective sub-types
+                if group in ("trail", "mic_elective"):
+                    lp = label.lower()
+                    if "primary" in lp or "secondary" in lp:
+                        group = "trail"
+                    elif "open elective" in lp:
+                        group = "open_elective"
+                    elif "major elective" in lp:
+                        group = "major_elective"
+                    elif "free elective" in lp:
+                        group = "free_elective"
+            elif _last_heading[0]:
+                _sub_count[0] += 1
+                # Check if the last printed line gives extra context
+                lp_ctx = _last_print[0].lower()
+                if "open elective" in lp_ctx:
+                    label = "Open Elective"
+                    group = "open_elective"
+                    _last_heading[0] = label
+                    _sub_count[0] = 0
+                elif "course" in lp_ctx and "from '" in lp_ctx:
+                    # e.g. "Course 1 of 2 from 'Algorithms and Computation':"
+                    label = _last_print[0].rstrip(":").strip()
+                    if group == "trail":
+                        group = "trail_course"
+                elif group == "mic_core":
+                    # Extract label from the printed context line
+                    # e.g. "LANGUAGE (4th slot) — ..." → "Language"
+                    for slot_name in ("language", "humanities", "social sciences", "science"):
+                        if slot_name in lp_ctx:
+                            label = slot_name.title()
+                            break
+                    else:
+                        label = f"MIC Core — slot {_sub_count[0]}"
+                else:
+                    label = f"{_last_heading[0]} — course {_sub_count[0]}"
+                    # Sub-picks under trail headings
+                    if group == "trail":
+                        lh = _last_heading[0].lower()
+                        if "primary" in lh or "secondary" in lh:
+                            group = "trail_course"
+                        elif "open elective" in lh:
+                            group = "open_elective"
+            else:
+                if group == "mic_core":
+                    lp_ctx = _last_print[0].lower()
+                    for slot_name in ("language", "humanities", "social sciences", "science"):
+                        if slot_name in lp_ctx:
+                            label = slot_name.title()
+                            break
+                    else:
+                        label = f"MIC Core — slot {_pick_idx[0]}"
+                else:
+                    label = f"Course selection {_pick_idx[0]}"
             if prompt:
                 print(prompt)
             for i, lbl in enumerate(labels, 1):
@@ -249,15 +342,16 @@ def _run_audit_in_thread(content: bytes, program: str, answers: dict) -> dict:
                 print(f"  {i}. {lbl}{marker}")
             print(f"  → {labels[options.index(selected)]}")
             _choices.append({
-                "key": key, "type": "pick", "prompt": (prompt or "").strip(),
+                "key": key, "type": "pick", "group": group,
+                "label": label, "prompt": clean_prompt,
                 "options": list(options), "display": list(labels),
                 "selected": selected,
             })
             return selected
 
         def _patched_yn(prompt):
-            key = f"yn_{_idx[0]}"
-            _idx[0] += 1
+            key = f"yn_{_yn_idx[0]}"
+            _yn_idx[0] += 1
             if key in answers:
                 selected = bool(answers[key])
             else:
@@ -275,7 +369,7 @@ def _run_audit_in_thread(content: bytes, program: str, answers: dict) -> dict:
         audit_l2._prompt_yes_no = _patched_yn
         audit_l1.NO_INTERACT    = True
 
-        captured = io.StringIO()
+        captured = _TrackingWriter()
         try:
             with redirect_stdout(captured):
                 with _AUDIT_LOCK:

@@ -1563,8 +1563,9 @@ def select_electives_cse(
         c3 = _prompt_pick("", sec_pool, display=[_course_display(c,rows) for c in sec_pool])
         major_electives.append(c3)
 
-    # FIX #18: Minor course declaration — must happen BEFORE open pool so
-    # declared courses are excluded from it; non-declared ones remain available.
+    # FIX #18: Minor course declaration — must happen BEFORE open pool.
+    # Minor courses remain available as open elective options regardless of
+    # whether they are declared for a minor program.
     selected_minor_n = _select_minor_courses_cse(
         rows, taken, _waived, _core_excl,
         program_credits=program_credits, program_key=program_key)
@@ -1578,8 +1579,7 @@ def select_electives_cse(
         and c not in set(major_electives)
         and (c in all_trail_codes
              or c not in (allowed_codes or set())
-             or (normalize_course_code(c) in CSE_MINOR_COURSES
-                 and normalize_course_code(c) not in selected_minor_n))
+             or normalize_course_code(c) in CSE_MINOR_COURSES)
     ])
     if open_pool:
         print("\nSelect your OPEN ELECTIVE (unselected trail + outside-curriculum NSU courses):")

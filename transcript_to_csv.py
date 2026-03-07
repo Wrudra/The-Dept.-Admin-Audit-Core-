@@ -65,6 +65,16 @@ VALID_GRADES: set[str] = {
 STANDARD_CREDITS = {"0.0", "1.0", "1.5", "3.0"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
+# Load the NSU course catalog (used to reject OCR false positives).
+_CATALOG: frozenset
+_CATALOG_PATH = Path(__file__).parent / "nsu_catalog.json"
+if _CATALOG_PATH.exists():
+    import json as _json
+    with _CATALOG_PATH.open() as _f:
+        _CATALOG = frozenset(_json.load(_f))
+else:
+    _CATALOG = frozenset()
+
 # Valid NSU 3-letter department prefixes (derived from audit_l1.py catalog).
 # Used to reject OCR noise that accidentally matches the course-code pattern
 # (e.g. watermark fragments like "NOK773").
@@ -195,6 +205,19 @@ def _ocr_r(img: "Image.Image") -> str:
 def _ocr_camscanner(img: "Image.Image") -> str:
     """OCR using CamScanner-style illumination normalisation."""
     processed = _enhance_camscanner(img)
+    return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+
+
+def _ocr_upscaled(img: "Image.Image") -> str:
+    """OCR using 2x upscaled image for small-text or noisy-area recovery.
+
+    Upscaling before enhancement gives Tesseract more pixels to work with,
+    which helps when characters are partially obscured by watermarks or when
+    the source image has low effective DPI.
+    """
+    w, h = img.size
+    upscaled = img.resize((w * 2, h * 2), Image.LANCZOS)
+    processed = _enhance(upscaled)
     return pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
 
 
@@ -376,6 +399,29 @@ def _normalize_credit(raw: str, cc_raw: str = None) -> str:
 
 # ── core parser ────────────────────────────────────────────────────────────────
 
+def _split_multi_course_lines(lines: list[str]) -> list[str]:
+    """Split lines containing multiple course codes into separate fragments.
+
+    When full-width OCR merges two columns, a single line can contain two
+    independent course rows (e.g. 'BIO103 ... 3.0 3.0 MIC415L ... 1.0 1.0').
+    The parser only extracts the last course code → the first is lost.
+    Splitting at each course-code boundary recovers both.
+    """
+    out: list[str] = []
+    for line in lines:
+        codes = list(COURSE_CODE_RE.finditer(line))
+        if len(codes) >= 2:
+            for i, m in enumerate(codes):
+                start = m.start()
+                end = codes[i + 1].start() if i + 1 < len(codes) else len(line)
+                fragment = line[start:end].strip()
+                if fragment:
+                    out.append(fragment)
+        else:
+            out.append(line)
+    return out
+
+
 def _parse_column(text: str, debug: bool = False) -> list[dict]:
     """
     Parse a single OCR column text and return a list of row dicts:
@@ -401,11 +447,26 @@ def _parse_column(text: str, debug: bool = False) -> list[dict]:
         lines.append(line)
         i += 1
 
+    # Split lines that contain multiple course codes (merged columns).
+    lines = _split_multi_course_lines(lines)
+
     for line in lines:
         if not line:
             continue
-        if _SKIP_RE.search(line):
-            continue
+        # Smart skip: if summary text appears AFTER a course code, truncate
+        # the line at the summary boundary instead of discarding it entirely.
+        skip_match = _SKIP_RE.search(line)
+        if skip_match:
+            pre_skip = line[:skip_match.start()].rstrip()
+            if not COURSE_CODE_RE.search(pre_skip):
+                continue          # no course data before the skip text
+            line = pre_skip       # keep only the course portion
+        # Strip trailing noise words left over after truncation (e.g. "Total",
+        # "Cumulative") that prevent END_RE from matching the grade/credit.
+        line = re.sub(
+            r'\s+(?:Total|Cumulative|Semester|Summary)\s*$', '',
+            line, flags=re.IGNORECASE,
+        )
 
         # ── course + grade extraction ────────────────────────────────────────
         end_m    = END_RE.search(line)
@@ -547,6 +608,19 @@ def parse_page(img: "Image.Image", debug: bool = False, r_pass: bool = False, in
             print(f"  [CAMSCANNER-PASS] recovered {len(best) - before} additional row(s)",
                   file=sys.stderr)
 
+    # Upscaled pass: 2x upscale before enhancement gives Tesseract more pixels
+    # to work with, recovering characters that are partially obscured or too
+    # small in the original resolution.  Run on both column halves and full-width.
+    if r_pass:
+        up_supp = (_parse_column(_ocr_upscaled(left_img),  debug=False)
+                 + _parse_column(_ocr_upscaled(right_img), debug=False)
+                 + _parse_column(_ocr_upscaled(img),       debug=False))
+        before = len(best)
+        best   = _merge_rows_strict(best, up_supp)
+        if debug and len(best) > before:
+            print(f"  [UPSCALE-PASS] recovered {len(best) - before} additional row(s)",
+                  file=sys.stderr)
+
     return best
 
 def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
@@ -563,6 +637,9 @@ def _merge_rows(primary: list[dict], supplementary: list[dict]) -> list[dict]:
     for row in supplementary:
         code = row["Course_Code"]
         if code not in seen_codes:
+            # Reject codes not in the NSU catalog (OCR false positives)
+            if _CATALOG and code not in _CATALOG:
+                continue
             # Row completely missed by primary pass — add it
             out.append(row)
             seen_codes.add(code)
@@ -595,6 +672,9 @@ def _merge_rows_strict(primary: list[dict], supplementary: list[dict]) -> list[d
     for row in supplementary:
         code = row["Course_Code"]
         if code not in seen_codes:
+            # Reject codes not in the NSU catalog (OCR false positives)
+            if _CATALOG and code not in _CATALOG:
+                continue
             if row["Credits"] not in STANDARD_CREDITS:
                 # Non-standard credit → clearly a real miss, always accept
                 out.append(row)
