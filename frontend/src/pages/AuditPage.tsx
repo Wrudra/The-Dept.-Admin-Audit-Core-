@@ -123,7 +123,8 @@ export default function AuditPage() {
         const trailAnswers: Record<string, unknown> = {};
         for (const c of choices) {
           if (c.type === "pick" && c.group === "trail") {
-            trailAnswers[c.key] = c.key === key ? value : (nextAnswers[c.key] ?? c.selected);
+            trailAnswers[c.key] =
+              c.key === key ? value : (nextAnswers[c.key] ?? c.selected);
           }
         }
         const { data } = await auditApi.rediscover(file, program, trailAnswers);
@@ -133,7 +134,10 @@ export default function AuditPage() {
         // Merge: keep existing non-trail-course answers, reset trail_course to new defaults
         const merged: Answers = {};
         for (const c of data.choices) {
-          if (c.type === "pick" && (c.group === "trail_course" || c.group === "open_elective")) {
+          if (
+            c.type === "pick" &&
+            (c.group === "trail_course" || c.group === "open_elective")
+          ) {
             merged[c.key] = c.selected; // reset to new defaults
           } else {
             merged[c.key] = nextAnswers[c.key] ?? c.selected;
@@ -236,8 +240,7 @@ export default function AuditPage() {
     },
     trail_course: {
       title: "Trail Courses",
-      subtitle:
-        "Pick the specific courses to count from your selected trails.",
+      subtitle: "Pick the specific courses to count from your selected trails.",
       icon: <MenuBookIcon />,
     },
     open_elective: {
@@ -265,7 +268,10 @@ export default function AuditPage() {
 
   // ── Trail sections: pair each "trail" pick with its subsequent "trail_course" picks
   const trailSections = useMemo(() => {
-    const sections: { trailPick: AuditChoicePick; coursePicks: AuditChoicePick[] }[] = [];
+    const sections: {
+      trailPick: AuditChoicePick;
+      coursePicks: AuditChoicePick[];
+    }[] = [];
     const allPicks = choices.filter(
       (c): c is AuditChoicePick => c.type === "pick",
     );
@@ -301,9 +307,7 @@ export default function AuditPage() {
     return (
       <Card key={g} variant="outlined">
         <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
-          <Box
-            sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}
-          >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
             <Box sx={{ color: "primary.main", display: "flex" }}>
               {meta.icon}
             </Box>
@@ -317,11 +321,7 @@ export default function AuditPage() {
               sx={{ ml: "auto" }}
             />
           </Box>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mb: 2 }}
-          >
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {meta.subtitle}
           </Typography>
           {picks.map(renderPickDropdown)}
@@ -539,7 +539,9 @@ export default function AuditPage() {
           {ynChoices.length > 0 && (
             <Card variant="outlined">
               <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <Box
+                  sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}
+                >
                   <GavelIcon fontSize="small" color="primary" />
                   <Typography variant="subtitle1" fontWeight={600}>
                     Waivers
@@ -567,9 +569,7 @@ export default function AuditPage() {
                         }
                       />
                     }
-                    label={
-                      <Typography variant="body2">{c.prompt}</Typography>
-                    }
+                    label={<Typography variant="body2">{c.prompt}</Typography>}
                     sx={{ display: "flex", mb: 0.5, ml: 0 }}
                   />
                 ))}
@@ -597,9 +597,7 @@ export default function AuditPage() {
               <React.Fragment key={section.trailPick.key}>
                 {/* ── Trail name selection card ──────────────────────────── */}
                 <Card variant="outlined">
-                  <CardContent
-                    sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}
-                  >
+                  <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
                     <Box
                       sx={{
                         display: "flex",
@@ -608,9 +606,7 @@ export default function AuditPage() {
                         mb: 0.5,
                       }}
                     >
-                      <Box
-                        sx={{ color: "primary.main", display: "flex" }}
-                      >
+                      <Box sx={{ color: "primary.main", display: "flex" }}>
                         <AltRouteIcon />
                       </Box>
                       <Typography variant="subtitle1" fontWeight={600}>
@@ -662,9 +658,7 @@ export default function AuditPage() {
                 {/* ── Trail courses card (appears after trail selection) ─── */}
                 {trailName && section.coursePicks.length > 0 && (
                   <Card variant="outlined">
-                    <CardContent
-                      sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}
-                    >
+                    <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
                       <Box
                         sx={{
                           display: "flex",
@@ -673,9 +667,7 @@ export default function AuditPage() {
                           mb: 0.5,
                         }}
                       >
-                        <Box
-                          sx={{ color: "primary.main", display: "flex" }}
-                        >
+                        <Box sx={{ color: "primary.main", display: "flex" }}>
                           <MenuBookIcon />
                         </Box>
                         <Typography variant="subtitle1" fontWeight={600}>
@@ -744,11 +736,9 @@ export default function AuditPage() {
                   </Typography>
                   {rediscovering && <LinearProgress sx={{ mb: 2 }} />}
                   {oePicks.map((c) => {
-                    const selVal =
-                      (answers[c.key] as string) ?? c.selected;
+                    const selVal = (answers[c.key] as string) ?? c.selected;
                     const filteredOpts = c.options.filter(
-                      (opt) =>
-                        opt === selVal || !trailCourseSelected.has(opt),
+                      (opt) => opt === selVal || !trailCourseSelected.has(opt),
                     );
                     return (
                       <FormControl
@@ -757,9 +747,7 @@ export default function AuditPage() {
                         size="small"
                         sx={{ mb: 2 }}
                       >
-                        <InputLabel id={`lbl-${c.key}`}>
-                          {c.label}
-                        </InputLabel>
+                        <InputLabel id={`lbl-${c.key}`}>{c.label}</InputLabel>
                         <Select
                           labelId={`lbl-${c.key}`}
                           value={selVal}
@@ -831,12 +819,11 @@ export default function AuditPage() {
                       color="text.secondary"
                       sx={{ mb: 2 }}
                     >
-                      {meta.subtitle} Already-selected courses are removed
-                      from subsequent dropdowns.
+                      {meta.subtitle} Already-selected courses are removed from
+                      subsequent dropdowns.
                     </Typography>
                     {picks.map((c) => {
-                      const selVal =
-                        (answers[c.key] as string) ?? c.selected;
+                      const selVal = (answers[c.key] as string) ?? c.selected;
                       const siblingSelected = new Set(
                         siblingKeys
                           .filter((k) => k !== c.key)
@@ -844,8 +831,7 @@ export default function AuditPage() {
                           .filter(Boolean),
                       );
                       const filteredOpts = c.options.filter(
-                        (opt) =>
-                          opt === selVal || !siblingSelected.has(opt),
+                        (opt) => opt === selVal || !siblingSelected.has(opt),
                       );
                       return (
                         <FormControl
@@ -854,9 +840,7 @@ export default function AuditPage() {
                           size="small"
                           sx={{ mb: 2 }}
                         >
-                          <InputLabel id={`lbl-${c.key}`}>
-                            {c.label}
-                          </InputLabel>
+                          <InputLabel id={`lbl-${c.key}`}>{c.label}</InputLabel>
                           <Select
                             labelId={`lbl-${c.key}`}
                             value={selVal}
@@ -912,13 +896,15 @@ export default function AuditPage() {
           )}
           {busy && <LinearProgress sx={{ mb: 1 }} />}
 
-          <Box
-            sx={{ display: "flex", justifyContent: "space-between", mt: 1 }}
-          >
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 1 }}>
             <Button onClick={() => setStep(0)} disabled={busy || rediscovering}>
               Back
             </Button>
-            <Button variant="contained" onClick={handleRun} disabled={busy || rediscovering}>
+            <Button
+              variant="contained"
+              onClick={handleRun}
+              disabled={busy || rediscovering}
+            >
               {busy ? "Running…" : rediscovering ? "Updating…" : "Run Audit"}
             </Button>
           </Box>
