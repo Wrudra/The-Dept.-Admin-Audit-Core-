@@ -397,7 +397,14 @@ export default function AuditReport({ result }: Props) {
               </Typography>
               {minor_programs.map((mp: MinorProgram) => (
                 <Box key={mp.name} sx={{ mb: 2 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      mb: 0.5,
+                    }}
+                  >
                     {mp.complete ? (
                       <CheckCircleIcon color="success" fontSize="small" />
                     ) : (
@@ -427,7 +434,13 @@ export default function AuditReport({ result }: Props) {
                         Declared:
                       </Typography>{" "}
                       {mp.declared_courses.map((c) => (
-                        <Chip key={c} label={c} size="small" color="primary" sx={{ mr: 0.5 }} />
+                        <Chip
+                          key={c}
+                          label={c}
+                          size="small"
+                          color="primary"
+                          sx={{ mr: 0.5 }}
+                        />
                       ))}
                     </Box>
                   )}
@@ -437,7 +450,11 @@ export default function AuditReport({ result }: Props) {
                         Choice ({mp.choice_slot.options.join(" / ")}):
                       </Typography>{" "}
                       {mp.choice_slot.selected ? (
-                        <Chip label={mp.choice_slot.selected} size="small" color="info" />
+                        <Chip
+                          label={mp.choice_slot.selected}
+                          size="small"
+                          color="info"
+                        />
                       ) : (
                         <Typography variant="caption" color="text.secondary">
                           not yet selected
