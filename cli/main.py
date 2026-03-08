@@ -19,6 +19,7 @@ import typer
 from rich import print as rprint
 from rich.table import Table
 from rich import box
+from rich.padding import Padding
 
 from .auth import load_token, save_token, delete_token, require_token, device_login
 from . import api as _api
@@ -76,6 +77,7 @@ def whoami() -> None:
 _GROUP_LABELS: dict[str, str] = {
     "ged_core":         "GED Core Courses",
     "mic_core":         "MIC Core Courses",
+    "minor_declare":    "Minor Declaration",
     "trail":            "Trail Selection",
     "trail_course":     "Trail Courses",
     "mic_elective":     "MIC Electives",
@@ -85,6 +87,38 @@ _GROUP_LABELS: dict[str, str] = {
     "bio_internship":   "Internship / Research or BIO103L",
     "other":            "Course Selections",
 }
+
+# ── Box-drawing helpers (adaptive width, color #c15f3c) ──────────────────────
+_BC = "#c15f3c"  # border colour
+_INDENT = 2      # leading spaces before ╔
+_PAD    = 2      # spaces between border and content on each side
+
+def _bw() -> int:
+    """Inner box width — terminal width minus indent and the two border chars."""
+    import shutil
+    cols = shutil.get_terminal_size(fallback=(132, 24)).columns
+    # total line = _INDENT + 1(╔) + _bw + 1(╗)  →  _bw = cols - _INDENT - 2
+    # floor at 60 so the box never collapses on tiny terminals
+    return max(60, cols - _INDENT - 2)
+
+def _btop() -> str:
+    return f"[{_BC}]{' '*_INDENT}╔{'═'*_bw()}╗[/{_BC}]"
+def _bsep() -> str:
+    return f"[{_BC}]{' '*_INDENT}╠{'═'*_bw()}╣[/{_BC}]"
+def _bbot() -> str:
+    return f"[{_BC}]{' '*_INDENT}╚{'═'*_bw()}╝[/{_BC}]"
+def _bline(text: str = "") -> str:
+    from rich.markup import escape
+    content_w = _bw() - 2 * _PAD
+    # Use len(text) for padding arithmetic (visual width, before escaping),
+    # then escape so Rich doesn't swallow brackets like [y/N] as markup tags.
+    padding = max(0, content_w - len(text))
+    padded  = escape(text) + " " * padding
+    return (
+        f"[{_BC}]{' '*_INDENT}║[/{_BC}]"
+        f"{' '*_PAD}{padded}{' '*_PAD}"
+        f"[{_BC}]║[/{_BC}]"
+    )
 
 
 def _collect_answers_interactive(api_url, token, transcript, program):
@@ -126,30 +160,51 @@ def _collect_answers_interactive(api_url, token, transcript, program):
             break
 
         if not header_shown:
-            rprint("\n[bold]Configure the audit:[/bold]")
+            rprint()
+            rprint(_btop())
+            rprint(_bline("CONFIGURE THE AUDIT"))
+            rprint(_bbot())
             header_shown = True
 
         yn_remaining   = [c for c in remaining if c["type"] == "yes_no"]
         pick_remaining = [c for c in remaining if c["type"] == "pick"]
 
-        # ── Waivers — collect all at once (independent of each other) ────
+        # ── Waivers — all questions together in one box ──────────────────
         diverged = False
         if yn_remaining:
-            rprint("\n[bold cyan]── Waivers ──────────────────────────────────────────[/bold cyan]")
-            rprint("[dim]Waived courses count toward Credit Completed only (not CGPA).[/dim]")
+            rprint()
+            rprint(_btop())
+            rprint(_bline("WAIVER CHECK"))
+            rprint(_bline("Waived courses count toward Credit Completed only (not Credit Counted or CGPA)."))
+            rprint(_bsep())
+            rprint(_bline())
             for c in yn_remaining:
                 default = c.get("selected", False)
                 hint    = "[Y/n]" if default else "[y/N]"
-                raw     = typer.prompt(f"  {c['prompt']} {hint}", default="")
-                raw     = raw.strip().lower()
+                rprint(_bline(f"  {c['prompt']} {hint}"))
+            rprint(_bline())
+            rprint(_bbot())
+            # Collect answers after the box is fully drawn
+            verdicts: list[str] = []
+            for c in yn_remaining:
+                default = c.get("selected", False)
+                course  = c["prompt"].split()[1]  # "Is ENG102 waived…" → "ENG102"
+                raw = typer.prompt(f"  {course}", default="").strip().lower()
                 if raw in ("y", "yes"):
                     answers[c["key"]] = True
                 elif raw in ("n", "no"):
                     answers[c["key"]] = False
                 else:
                     answers[c["key"]] = default
+                verdict = "waived" if answers[c["key"]] else "not waived"
+                verdicts.append(f"  \u2713  {course} \u2014 {verdict}.")
                 if answers[c["key"]] != default:
                     diverged = True
+            # Summary confirmation box
+            rprint(_btop())
+            for v in verdicts:
+                rprint(_bline(v))
+            rprint(_bbot())
             if diverged:
                 continue  # re-discover with waiver answers
 
@@ -164,13 +219,18 @@ def _collect_answers_interactive(api_url, token, transcript, program):
 
             if group != prev_group:
                 group_label = _GROUP_LABELS.get(group, "Course Selections")
-                pad = max(0, 47 - len(group_label))
-                rprint(f"\n[bold cyan]── {group_label} {'─' * pad}[/bold cyan]")
+                rprint()
+                rprint(_btop())
+                rprint(_bline(group_label.upper()))
+                rprint(_bsep())
                 prev_group = group
 
-            rprint(f"\n  [bold]{label}[/bold]")
+            rprint(_bline())
+            rprint(_bline(f"  {label}"))
             for i, (opt, disp) in enumerate(zip(options, display), 1):
-                rprint(f"    {i}. {disp}")
+                marker = "  \u25c4 default" if opt == default_sel else ""
+                rprint(_bline(f"    {i}. {disp}{marker}"))
+            rprint(_bbot())
 
             while True:
                 raw = typer.prompt(
@@ -189,6 +249,11 @@ def _collect_answers_interactive(api_url, token, transcript, program):
                     answers[c["key"]] = raw.upper()
                     break
                 rprint(f"  [red]Enter a number between 1 and {len(options)}.[/red]")
+
+            chosen_disp = display[options.index(answers[c["key"]])]
+            rprint(_btop())
+            rprint(_bline(f"    \u2713  {chosen_disp}  selected."))
+            rprint(_bbot())
 
             if answers[c["key"]] != default_sel:
                 diverged = True
@@ -254,7 +319,7 @@ def run(
 
     run_id = resp["run_id"]
     result = resp["result"]
-    _print_result(result, run_id)
+    _print_result(result, run_id, transcript_name=transcript.name)
 
 
 # ── Local audit (no API, no login needed) ─────────────────────────────────────
@@ -301,37 +366,95 @@ def run_local(
         sys.path.insert(0, str(repo_root))
 
     try:
-        from audit_l1 import AuditConfig
+        import audit_l1 as _al1
         import audit_l2
+        import audit_l3
     except ImportError as exc:
         rprint(f"[red]Cannot import audit engine:[/red] {exc}")
         raise typer.Exit(1)
 
-    config = AuditConfig(no_interact=no_interact, answers=answers_dict)
-    args   = types.SimpleNamespace(
+    args = types.SimpleNamespace(
         transcript=transcript,
         program_name=program,
         program_knowledge=_PROGRAM_MD,
         no_interact=no_interact,
     )
 
+    # Monkey-patch prompts to consume pre-supplied answers (fall back to
+    # auto-select when an answer key is absent or invalid).
+    _pick_idx = [0]
+    _yn_idx   = [0]
+    _orig_pick   = _al1._prompt_pick
+    _orig_yn_l1  = _al1._prompt_yes_no
+    _orig_yn_l2  = audit_l2._prompt_yes_no
+
+    def _ans_pick(prompt, options, display=None):
+        key = f"pick_{_pick_idx[0]}"
+        _pick_idx[0] += 1
+        sel = answers_dict.get(key)
+        if sel not in options:
+            if no_interact or answers_dict:
+                sel = options[0]
+            else:
+                return _orig_pick(prompt, options, display)
+        labels = display if display and len(display) == len(options) else options
+        if prompt:
+            print(prompt)
+        for i, lbl in enumerate(labels, 1):
+            print(f"  {i}. {lbl}")
+        print(f"  \u2192 {labels[options.index(sel)]}")
+        return sel
+
+    def _ans_yn(prompt):
+        key = f"yn_{_yn_idx[0]}"
+        _yn_idx[0] += 1
+        if key in answers_dict:
+            sel = bool(answers_dict[key])
+            print(f"  {prompt} \u2192 {'Yes' if sel else 'No'}")
+            return sel
+        if no_interact or answers_dict:
+            print(f"  [auto] {prompt} \u2192 No")
+            return False
+        return _orig_yn_l1(prompt)
+
+    if answers_dict or no_interact:
+        _al1._prompt_pick        = _ans_pick
+        _al1._prompt_yes_no      = _ans_yn
+        audit_l2._prompt_yes_no  = _ans_yn
+        _al1.NO_INTERACT         = True
+
     try:
-        result = audit_l2.run_audit(args, config)
+        result = audit_l2.run_audit(args)
     except (ValueError, FileNotFoundError) as exc:
         rprint(f"[red]Audit error:[/red] {exc}")
         raise typer.Exit(1)
+    finally:
+        _al1._prompt_pick        = _orig_pick
+        _al1._prompt_yes_no      = _orig_yn_l1
+        audit_l2._prompt_yes_no  = _orig_yn_l2
+        _al1.NO_INTERACT         = False
 
-    # Pretty-print key stats
-    rprint(f"\n[bold green]Audit complete[/bold green]")
-    rprint(f"  Program:          {result['program_key']}")
-    rprint(f"  Credits completed: {result['credit_completed']} / {result['required_credits']}")
-    rprint(f"  CGPA:             {round(float(result['cgpa']), 2)}")
-    if result.get("waived_courses"):
-        rprint(f"  Waived:           {', '.join(sorted(result['waived_courses']))}")
-    if result.get("prereq_failures"):
-        rprint(f"  [yellow]Prereq failures:[/yellow]")
-        for course, reason in result["prereq_failures"].items():
-            rprint(f"    {course}: {reason}")
+    # Full L3-style report (audit engine already printed waivers/electives above)
+    audit_l2.print_report(
+        result["transcript_path"], result["program_name"],
+        result["total"], result["per_course"], result["by_course"],
+        result["required_credits"],
+        result["cgpa"], result["total_gp"], result["total_cr_attempted"],
+        result["per_course_cgpa"], result["waiver_notes"],
+        allowed_codes=result["allowed_codes"],
+        program_credits=result["program_credits"],
+        program_key=result["program_key"],
+        major_electives=result["major_electives"],
+        open_elective=result["open_elective"],
+        free_electives=result["free_electives"],
+        core_excluded=result["core_excluded"],
+        unselected_electives=result["unselected_electives"],
+        waived_courses=result["waived_courses"],
+        prereq_failures=result["prereq_failures"],
+        report_level=3,
+    )
+    deficiencies = audit_l3.compute_deficiencies(result)
+    audit_l3.print_deficiency_report(result, deficiencies)
 
 
 # ── History ───────────────────────────────────────────────────────────────────
@@ -382,34 +505,193 @@ def history(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _print_result(result: dict, run_id: str) -> None:
-    rprint(f"\n[bold green]Audit complete[/bold green]  [dim](run {run_id[:8]})[/dim]")
-    rprint(f"  Program:           {result['program']}")
-    rprint(f"  Credits completed: {result['credit_completed']} / {result['required_credits']}")
-    rprint(f"  CGPA:              {result['cgpa']}")
-    if result.get("academic_standing"):
-        rprint(f"  Standing:          {result['academic_standing']}")
-    if result.get("waived_courses"):
-        rprint(f"  Waived:            {', '.join(result['waived_courses'])}")
-    if result.get("major_electives"):
-        rprint(f"  Major electives:   {', '.join(result['major_electives'])}")
-    if result.get("open_elective"):
-        rprint(f"  Open elective:     {result['open_elective']}")
-    if result.get("free_electives"):
-        rprint(f"  Free electives:    {', '.join(result['free_electives'])}")
-    if result.get("prereq_failures"):
-        rprint("[yellow]  Prereq failures:[/yellow]")
-        for course, reason in result["prereq_failures"].items():
-            rprint(f"    {course}: {reason}")
-    not_counted = [
-        r for r in result.get("per_course_detail", [])
-        if not r["counted"] and r.get("reason")
-    ]
-    if not_counted:
-        rprint("[yellow]  Not counted:[/yellow]")
-        for r in not_counted:
-            rprint(f"    {r['course']}: {r['reason']}")
+def _print_result(result: dict, run_id: str, transcript_name: str = "") -> None:
+    from rich.markup import escape as _esc
+
+    program  = result.get("program", "")
+
+    # ── Selected Electives box ─────────────────────────────────────────────────
+    major_els = result.get("major_electives") or []
+    open_el   = result.get("open_elective") or ""
+    free_els  = result.get("free_electives") or []
+
+    if major_els or open_el or free_els:
+        rprint()
+        rprint(_btop())
+        rprint(_bline("SELECTED ELECTIVES  (included in credit tally)"))
+        rprint(_bsep())
+        for e in major_els:
+            rprint(_bline(f"  \u25b8 {e}   [Major Elective]"))
+        if open_el:
+            elec_lbl = "Free Elective" if program == "MIC" else "Open Elective"
+            rprint(_bline(f"  \u25b8 {open_el}   [{elec_lbl}]"))
+        for e in free_els:
+            rprint(_bline(f"  \u25b8 {e}   [Free Elective]"))
+        rprint(_bbot())
+
+    # ── Minor Programs box (CSE only) ─────────────────────────────────────────
+    minors = result.get("minor_programs") or []
+    if minors:
+        rprint()
+        rprint(_btop())
+        rprint(_bline("MINOR PROGRAM(S) DETECTED"))
+        for mp in minors:
+            rprint(_bsep())
+            done_str = "\u2713 COMPLETE" if mp.get("complete") else f"\u2717 INCOMPLETE \u2014 {mp.get('progress', '')}"
+            rprint(_bline(f"  {mp['name']} ({mp['total_credits']} credits)   \u2014   {done_str}"))
+            if mp.get("core_courses"):
+                rprint(_bline(f"  School Core (already required): {', '.join(mp['core_courses'])}"))
+            if mp.get("declared_courses"):
+                rprint(_bline(f"  Declared courses: {', '.join(mp['declared_courses'])}"))
+            cs = mp.get("choice_slot") or {}
+            if cs.get("selected"):
+                opts = " or ".join(cs.get("options") or [])
+                rprint(_bline(f"  Elective slot ({opts}): {cs['selected']} \u2713"))
+        rprint(_bbot())
+
+    # ── CGPA & Credit Tally box ────────────────────────────────────────────────
+    credit_passed    = float(result.get("credit_passed") or 0)
+    credit_counted   = float(result.get("credit_counted") or 0)
+    credit_completed = float(result.get("credit_completed") or 0)
+    required_credits = result.get("required_credits")
+    cgpa             = float(result.get("cgpa") or 0)
+    standing         = result.get("academic_standing") or ""
+    total_gp         = float(result.get("total_grade_points") or 0)
+
+    credit_ok = credit_completed >= (required_credits or 0)
+    cgpa_ok   = cgpa >= 2.0
+    cr_flag   = "\u2713 MET" if credit_ok else "\u2717 NOT MET"
+    cgpa_flag = "\u2713 MET (\u2265 2.0)" if cgpa_ok else "\u2717 PROBATION \u2014 below 2.0 minimum"
+
     rprint()
+    rprint(_btop())
+    rprint(_bline("CGPA & CREDIT TALLY REPORT"))
+    rprint(_bsep())
+    if transcript_name:
+        rprint(_bline(f"Transcript  :  {transcript_name}"))
+    rprint(_bline(f"Program     :  {program}"))
+    for note in (result.get("waiver_notes") or []):
+        rprint(_bline(f"Waiver      :  {note}"))
+    rprint(_bsep())
+    rprint(_bline(f"CREDIT PASSED     :  {credit_passed:.1f}   (passing grades A\u2013D; counts toward graduation)"))
+    rprint(_bline(f"CREDIT COUNTED    :  {credit_counted:.1f}   (A\u2013F grades in curriculum; CGPA denominator)"))
+    if required_credits is not None:
+        rprint(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f} / {required_credits} required   [{cr_flag}]"))
+    else:
+        rprint(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f}"))
+    rprint(_bline(f"CGPA              :  {cgpa:.2f}   [{standing}]   [{cgpa_flag}]"))
+    rprint(_bline(f"Grade Points      :  {total_gp:.2f}  \u00f7  {credit_counted:.1f} Credit Counted"))
+    rprint(_bbot())
+
+    # ── Course tables ─────────────────────────────────────────────────────────
+    detail   = result.get("per_course_detail") or []
+    counted  = sorted([r for r in detail if r.get("counted")],         key=lambda r: r["course"])
+    excluded = sorted([r for r in detail if not r.get("counted") and r.get("reason")], key=lambda r: r["course"])
+
+    def _tbl() -> Table:
+        t = Table(
+            box=box.SQUARE,
+            show_header=True,
+            header_style="",
+            border_style=_BC,
+            show_lines=False,
+            padding=(0, 1),
+        )
+        t.add_column("Course",          width=14, no_wrap=True)
+        t.add_column("Credits",         width=9,  justify="right", no_wrap=True)
+        t.add_column("Grade",           width=6,  no_wrap=True)
+        t.add_column("Status / Reason", no_wrap=False, min_width=30)
+        return t
+
+    if counted:
+        rprint()
+        rprint(f"[{_BC}]  Courses counted toward graduation:[/{_BC}]")
+        t = _tbl()
+        for r in counted:
+            cr_s   = f"{r['credits']:.1f}" if r.get("credits") is not None else "\u2014"
+            status = f"Counted  [{r['label']}]" if r.get("label") else "Counted"
+            t.add_row(r["course"], cr_s, r.get("grade") or "\u2014", status)
+        rprint(Padding(t, (0, 0, 0, 2)))
+
+    if excluded:
+        rprint()
+        rprint(f"[{_BC}]  Courses not counted (0 credits):[/{_BC}]")
+        t = _tbl()
+        for r in excluded:
+            t.add_row(r["course"], "\u2014", r.get("grade") or "\u2014", _esc(r.get("reason") or ""))
+        rprint(Padding(t, (0, 0, 0, 2)))
+
+    # ── Summary box ───────────────────────────────────────────────────────────
+    standing_line = (
+        "\u26a0  PROBATION \u2014 CGPA is below the 2.0 minimum required for graduation"
+        if cgpa < 2.0 else standing
+    )
+    rprint()
+    rprint(_btop())
+    rprint(_bline(f"Credit Passed                :  {credit_passed:.1f}   (passing grades A\u2013D; toward graduation)"))
+    rprint(_bline(f"Credit Counted               :  {credit_counted:.1f}   (A\u2013F grades; CGPA denominator \u2014 includes F where applicable)"))
+    rprint(_bline(f"Total Grade Points           :  {total_gp:.2f}"))
+    rprint(_bline(f"CGPA                         :  {cgpa:.2f}   ({standing})"))
+    rprint(_bline(f"Academic Standing            :  {standing_line}"))
+    rprint(_bbot())
+
+    # ── Deficiency Report box ─────────────────────────────────────────────────
+    deficiency = result.get("deficiency") or {}
+    eligible   = deficiency.get("eligible", False)
+    status_str = "\u2713  ELIGIBLE FOR GRADUATION" if eligible else "\u2717  NOT ELIGIBLE FOR GRADUATION"
+    content_w  = _bw() - 2 * _PAD
+
+    rprint()
+    rprint(_btop())
+    rprint(_bline("DEFICIENCY REPORT"))
+    rprint(_bsep())
+    if transcript_name:
+        rprint(_bline(f"Transcript  :  {transcript_name}"))
+    rprint(_bline(f"Program     :  {program}"))
+    rprint(_bsep())
+    rprint(_bline(f"Graduation Status  :  {status_str}"))
+    rprint(_bsep())
+
+    if eligible:
+        rprint(_bline("  All requirements satisfied. Student is cleared for graduation."))
+    else:
+        sf = float(deficiency.get("credit_shortfall") or 0)
+        if sf > 0:
+            rprint(_bline(f"  \u25b8 Credit shortfall     :  {sf:.1f} credit(s) below the required total"))
+        if deficiency.get("probation"):
+            rprint(_bline("  \u25b8 Probation            :  CGPA is below the 2.0 minimum required for graduation"))
+        for mm in (deficiency.get("missing_mandatory") or []):
+            cat   = mm.get("category", "")
+            items = mm.get("courses") or []
+            label = f"  \u25b8 Missing [{cat}]"
+            full  = f"{label}  :  {', '.join(items)}"
+            if len(full) <= content_w:
+                rprint(_bline(full))
+            else:
+                rprint(_bline(label))
+                chunk = ""
+                for item in items:
+                    candidate = chunk + ("  " if chunk else "      ") + item
+                    if len(candidate) <= content_w - 2:
+                        chunk = candidate
+                    else:
+                        if chunk:
+                            rprint(_bline(chunk))
+                        chunk = "      " + item
+                if chunk:
+                    rprint(_bline(chunk))
+        if deficiency.get("prereq_failures_list"):
+            rprint(_bline("  \u25b8 Prerequisite failures:"))
+            for pf in deficiency["prereq_failures_list"]:
+                detail = pf.get("reason", "").removeprefix("prereq not met: ")
+                rprint(_bline(f"      {pf['course']}  \u2014  needs: {detail}"))
+
+    rprint(_bsep())
+    rprint(_bline(f"  {deficiency.get('retake_note', '')}"))
+    rprint(_bbot())
+
+    rprint()
+    rprint(f"[dim]  Run ID: {run_id[:8]}[/dim]")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

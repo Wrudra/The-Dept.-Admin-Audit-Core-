@@ -5,7 +5,10 @@ Tokens are stored at ~/.config/nsu-audit/credentials.json with mode 0600.
 import json
 import os
 import stat
+import subprocess
+import sys
 import time
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -78,9 +81,15 @@ def device_login(api_url: str) -> str:
     interval         = int(data.get("interval", 5))
     expires_in       = int(data.get("expires_in", 1800))
 
-    print(f"\n  Open this URL in your browser:")
-    print(f"    {verification_url}\n")
-    print(f"  Then enter the code:  {user_code}\n")
+    # Auto-open the browser
+    webbrowser.open(verification_url)
+
+    # Copy the code to the clipboard (macOS pbcopy, Linux xclip/xsel, Windows clip)
+    _copy_to_clipboard(user_code)
+
+    print(f"\n  Browser opened: {verification_url}")
+    print(f"  Code copied to clipboard: {user_code}")
+    print(f"  Just paste it in the browser and confirm.\n")
     print("  Waiting for authorization", end="", flush=True)
 
     # Step 2 — poll Google directly for the token
@@ -122,3 +131,22 @@ def device_login(api_url: str) -> str:
 
     print()
     raise TimeoutError("Device authorization timed out.")
+
+
+def _copy_to_clipboard(text: str) -> None:
+    """Best-effort clipboard copy; silently skips if no clipboard tool is available."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        elif sys.platform == "win32":
+            subprocess.run(["clip"], input=text.encode(), check=True)
+        else:
+            # Linux: try xclip then xsel
+            for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+                try:
+                    subprocess.run(cmd, input=text.encode(), check=True)
+                    break
+                except FileNotFoundError:
+                    continue
+    except Exception:
+        pass  # clipboard is a convenience; never fatal

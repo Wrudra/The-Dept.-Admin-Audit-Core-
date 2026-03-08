@@ -17,10 +17,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.session import get_current_claims
+from ..auth.session import get_current_claims, get_current_user
 from ..config import settings
 from ..database import get_db
 from ..models.audit_run import AuditRun
+from ..models.user import User
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -61,12 +62,12 @@ _AUDIT_LOCK = threading.Lock()
 
 @router.post("/run", summary="Run an audit against a transcript CSV")
 async def run_audit_endpoint(
-    transcript: UploadFile  = File(...,   description="Transcript CSV produced by transcript_to_csv.py"),
-    program:    str          = Form(...,   description="Program code: CSE or MIC"),
-    answers:    str          = Form("{}",  description="JSON object mapping choice keys to values"),
-    save:       str          = Form("true", description="Whether to persist the audit run to the database"),
-    db:         AsyncSession = Depends(get_db),
-    claims:     dict         = Depends(get_current_claims),
+    transcript:   UploadFile  = File(...,   description="Transcript CSV produced by transcript_to_csv.py"),
+    program:      str          = Form(...,   description="Program code: CSE or MIC"),
+    answers:      str          = Form("{}",  description="JSON object mapping choice keys to values"),
+    save:         str          = Form("true", description="Whether to persist the audit run to the database"),
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
 ) -> dict:
     """Upload a transcript CSV and pre-supplied answers, run the audit engine, return results + choices."""
 
@@ -91,8 +92,11 @@ async def run_audit_endpoint(
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"answers must be a JSON object: {exc}")
 
-    user_id = uuid.UUID(claims["user_id"])
-    _check_rate_limit(str(user_id))
+    user_id = current_user.id
+    # Only count persisted runs against the rate limit — discovery/preview
+    # calls (save=false) are cheap and used repeatedly by the interactive CLI.
+    if do_save:
+        _check_rate_limit(str(user_id))
 
     # ── Read + size-check upload ──────────────────────────────────────────────
     content = await transcript.read()
@@ -153,12 +157,12 @@ async def run_audit_endpoint(
 
 @router.get("/{run_id}", summary="Fetch a previously completed audit")
 async def get_audit(
-    run_id: uuid.UUID,
-    db:     AsyncSession = Depends(get_db),
-    claims: dict         = Depends(get_current_claims),
+    run_id:       uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
 ) -> dict:
     """Return a past audit run owned by the caller."""
-    user_id = uuid.UUID(claims["user_id"])
+    user_id = current_user.id
     result  = await db.execute(
         select(AuditRun).where(AuditRun.id == run_id, AuditRun.user_id == user_id)
     )
@@ -253,6 +257,8 @@ def _run_audit_in_thread(content: bytes, program: str, answers: dict) -> dict:
         _FUNC_GROUP = {
             "resolve_cse_choice_groups":          "ged_core",
             "select_mic_core_choices":            "mic_core",
+            "_declare_group":                     "minor_declare",
+            "_select_minor_courses_cse":          "minor_declare",
             "select_electives_cse":               "trail",
             "select_electives_mic":               "mic_elective",
             "resolve_cse_bio_internship_choice":  "bio_internship",

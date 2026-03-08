@@ -1412,6 +1412,8 @@ def _select_minor_courses_cse(
 
     selected_n: Set[str] = set()
 
+    _DONE = ""  # sentinel meaning "stop declaring"
+
     def _declare_group(group: list[str], label: str, max_needed: int) -> None:
         remaining = list(group)
         declared_count = 0
@@ -1422,24 +1424,23 @@ def _select_minor_courses_cse(
                 leftover = ", ".join(remaining)
                 print(f"  Minor requirement met — remaining course(s) go to open elective pool: {leftover}")
                 break
-            display = [_course_display(c, rows, program_credits, program_key) for c in remaining]
-            for i, d in enumerate(display, 1):
-                print(f"  {i}. {d}")
-            if NO_INTERACT:
-                for c in remaining:
-                    selected_n.add(normalize_course_code(c))
-                    print(f"  [auto] → {_course_display(c, rows, program_credits, program_key)}  declared.")
-                return
-            raw = input("  Enter number to declare (or press Enter when done): ").strip()
-            if not raw:
+            # Build options with a sentinel so the user (or NO_INTERACT auto) can stop
+            course_labels = [_course_display(c, rows, program_credits, program_key) for c in remaining]
+            opts   = remaining + [_DONE]
+            labels = course_labels + ["(done — stop declaring)"]
+            chosen = _prompt_pick(
+                f"\n  Declare course for {label} [{declared_count + 1} of up to {max_needed}]:",
+                opts, display=labels,
+            )
+            if chosen == _DONE:
+                if remaining:
+                    leftover = ", ".join(remaining)
+                    print(f"  Remaining course(s) go to open elective pool: {leftover}")
                 break
-            if raw.isdigit() and 1 <= int(raw) <= len(remaining):
-                chosen = remaining.pop(int(raw) - 1)
-                selected_n.add(normalize_course_code(chosen))
-                declared_count += 1
-                print(f"  ✓ {_course_display(chosen, rows, program_credits, program_key)}  declared.")
-            else:
-                print("  Invalid input, please try again.\n")
+            remaining.remove(chosen)
+            selected_n.add(normalize_course_code(chosen))
+            declared_count += 1
+            print(f"  ✓ {_course_display(chosen, rows, program_credits, program_key)}  declared.")
 
     if math_extras:
         _declare_group(math_extras, "Minor in Mathematics", max_needed=3)
@@ -1542,8 +1543,8 @@ def select_electives_cse(
         major_electives.append(c3)
 
     # FIX #18: Minor course declaration — must happen BEFORE open pool.
-    # Minor courses remain available as open elective options regardless of
-    # whether they are declared for a minor program.
+    # Only UNDECLARED minor courses remain available as open elective options;
+    # courses already declared for a minor are excluded from the open pool.
     selected_minor_n = _select_minor_courses_cse(
         rows, taken, _waived, _core_excl,
         program_credits=program_credits, program_key=program_key)
@@ -1557,7 +1558,8 @@ def select_electives_cse(
         and c not in set(major_electives)
         and (c in all_trail_codes
              or c not in (allowed_codes or set())
-             or normalize_course_code(c) in CSE_MINOR_COURSES)
+             or (normalize_course_code(c) in CSE_MINOR_COURSES
+                 and normalize_course_code(c) not in selected_minor_n))
     ])
     if open_pool:
         print("\nSelect your OPEN ELECTIVE (unselected trail + outside-curriculum NSU courses):")
