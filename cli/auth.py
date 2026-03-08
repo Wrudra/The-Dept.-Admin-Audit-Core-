@@ -74,6 +74,7 @@ def device_login(api_url: str) -> str:
     verification_url = data["verification_url"]
     device_code      = data["device_code"]
     client_id        = data["client_id"]
+    client_secret    = data.get("client_secret", "")
     interval         = int(data.get("interval", 5))
     expires_in       = int(data.get("expires_in", 1800))
 
@@ -92,9 +93,10 @@ def device_login(api_url: str) -> str:
             poll = client.post(
                 _GOOGLE_TOKEN_URL,
                 data={
-                    "grant_type":  _DEVICE_GRANT_TYPE,
-                    "device_code": device_code,
-                    "client_id":   client_id,
+                    "grant_type":    _DEVICE_GRANT_TYPE,
+                    "device_code":   device_code,
+                    "client_id":     client_id,
+                    "client_secret": client_secret,
                 },
             )
 

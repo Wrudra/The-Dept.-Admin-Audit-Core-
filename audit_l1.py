@@ -369,7 +369,7 @@ GRADE_RANK: dict[str,int] = {
     "C+":5,"C":4,"C-":3,"D+":2,"D":1,
 }
 PASSING_GRADES = set(GRADE_RANK.keys())
-NO_CREDIT_GRADES = {"F","W","I"}
+NO_CREDIT_GRADES = {"F","W","I","WV"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Non-credit lab sets
@@ -924,22 +924,12 @@ def reason_not_counted(
         return "waived — counts in Credit Completed only (excluded from Credit Counted & CGPA)"
     if core_excluded and n in core_excluded:
         if n in CSE_BIO_INTERNSHIP_SLOT:
-            # FIX Bug 1 (revised): only enter the internship-slot branch when at least
-            # one *other* CSE_BIO_INTERNSHIP_SLOT member is also in core_excluded.
-            # This guards against BIO103L being excluded for a completely different
-            # reason (e.g. MIC science-pair choice slot) where CSE498R/I are absent
-            # from core_excluded, causing the old logic to wrongly name them as the
-            # "chosen" course.
             _excl_n = {normalize_course_code(c) for c in core_excluded}
-            _other_slot_excluded = (CSE_BIO_INTERNSHIP_SLOT - {n}) & _excl_n
-            if _other_slot_excluded:
-                _chosen_set = CSE_BIO_INTERNSHIP_SLOT - _excl_n
-                _chosen_str = next(iter(_chosen_set)) if _chosen_set else "another option"
+            _chosen_set = CSE_BIO_INTERNSHIP_SLOT - _excl_n
+            if _chosen_set:
+                _chosen_str = next(iter(_chosen_set))
                 return (f"1-credit slot claimed by {_chosen_str} — "
                         "only one of BIO103L / CSE498R / CSE498I may count")
-        # FIX Bug 2 & 3: the old message unconditionally said "higher-grade course",
-        # which is factually wrong whenever the admin manually selects a lower-grade
-        # or same-grade course.  Use neutral wording that is accurate in all cases.
         return "choice slot filled by another course from the same group"
     if unselected_electives and n in unselected_electives:
         # Course IS a known elective for this program — never show "not part of curriculum".
@@ -1380,22 +1370,10 @@ def resolve_cse_bio_internship_choice(rows: list[dict]) -> set[str]:
         ]
         print(_bline("  Both BIO103L and CSE498R/I passed — choose ONE to count:"))
         print(_bsep())
-        if NO_INTERACT:
-            for i, label in enumerate(display, 1):
-                print(_bline(f"  {i}. {label}"))
-            print(_bline(f"  [auto] → {display[0]}"))
-            chosen = options[0]
-        else:
-            while True:
-                for i, label in enumerate(display, 1):
-                    print(_bline(f"  {i}. {label}"))
-                print(_bsep())
-                raw = input("      Enter number: ").strip()
-                if raw.isdigit() and 0 <= int(raw) - 1 < len(options):
-                    chosen = options[int(raw) - 1]
-                    break
-                print(_bline("  Invalid input, please try again."))
-                print(_bsep())
+        chosen = _prompt_pick(
+            "Internship / Research or BIO103L (1 credit — choose one)",
+            options, display,
+        )
         excluded = set(options) - {chosen}
         grade   = get_display_grade(by_course[chosen])
         print(_bline(f"  ✓ {chosen}  ({grade}) selected for the 1-credit slot."))
@@ -1807,6 +1785,12 @@ def main() -> int:
     credits_by_program = program_credits
 
     # Waiver check
+    # Auto-detect waivers from transcript (WV grade rows)
+    _transcript_wv = set()
+    for _r in load_transcript(args.transcript):
+        if _r["grade"] == "WV" and _r["course_code"] in WAIVERABLE_COURSES:
+            _transcript_wv.add(_r["course_code"])
+
     waived_courses: Set[str] = set()
     print()
     print(_btop())
@@ -1814,12 +1798,18 @@ def main() -> int:
     print(_bline("Waived courses count toward Credit Completed only (not Credit Counted or CGPA)."))
     print(_bsep())
     print(_bline(""))
-    if _prompt_yes_no("Is ENG102 waived for this student?"):
+    if "ENG102" in _transcript_wv:
+        waived_courses.add("ENG102")
+        print(_bline("  → ENG102 waived (detected from transcript)."))
+    elif _prompt_yes_no("Is ENG102 waived for this student?"):
         waived_courses.add("ENG102")
         print(_bline("  → ENG102 waived."))
     else:
         print(_bline("  → ENG102 not waived (grade counts in Credit Counted and CGPA)."))
-    if _prompt_yes_no("Is MAT112 waived for this student?"):
+    if "MAT112" in _transcript_wv:
+        waived_courses.add("MAT112")
+        print(_bline("  → MAT112 waived (detected from transcript)."))
+    elif _prompt_yes_no("Is MAT112 waived for this student?"):
         waived_courses.add("MAT112")
         print(_bline("  → MAT112 waived."))
     else:

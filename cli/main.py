@@ -73,14 +73,141 @@ def whoami() -> None:
 
 # ── Run audit via API ─────────────────────────────────────────────────────────
 
+_GROUP_LABELS: dict[str, str] = {
+    "ged_core":         "GED Core Courses",
+    "mic_core":         "MIC Core Courses",
+    "trail":            "Trail Selection",
+    "trail_course":     "Trail Courses",
+    "mic_elective":     "MIC Electives",
+    "major_elective":   "Major Electives",
+    "free_elective":    "Free Electives",
+    "open_elective":    "Open Elective",
+    "bio_internship":   "Internship / Research or BIO103L",
+    "other":            "Course Selections",
+}
+
+
+def _collect_answers_interactive(api_url, token, transcript, program):
+    """Collect user answers incrementally, re-discovering after divergent picks.
+
+    Instead of collecting all answers in one pass (which shows options based on
+    auto-selected defaults), this re-runs discovery whenever the user picks
+    something different from the default.  Every subsequent prompt therefore
+    shows options that reflect the user's actual prior choices.
+    """
+    answers: dict = {}
+    prev_group = ""
+    header_shown = False
+    max_passes = 15          # safeguard against infinite loops
+
+    for _ in range(max_passes):
+        try:
+            discovery = _api.api_post_multipart(
+                api_url, "/api/audit/run", token,
+                csv_path=transcript, program=program, answers=answers, save=False,
+            )
+        except Exception as exc:
+            rprint(f"[red]Audit failed:[/red] {exc}")
+            raise typer.Exit(1)
+
+        choices = discovery.get("choices", [])
+
+        # Identify choices that still need a (valid) answer
+        remaining = []
+        for c in choices:
+            key = c["key"]
+            if key not in answers:
+                remaining.append(c)
+            elif c["type"] == "pick" and answers[key] not in c["options"]:
+                del answers[key]
+                remaining.append(c)
+
+        if not remaining:
+            break
+
+        if not header_shown:
+            rprint("\n[bold]Configure the audit:[/bold]")
+            header_shown = True
+
+        yn_remaining   = [c for c in remaining if c["type"] == "yes_no"]
+        pick_remaining = [c for c in remaining if c["type"] == "pick"]
+
+        # ── Waivers — collect all at once (independent of each other) ────
+        diverged = False
+        if yn_remaining:
+            rprint("\n[bold cyan]── Waivers ──────────────────────────────────────────[/bold cyan]")
+            rprint("[dim]Waived courses count toward Credit Completed only (not CGPA).[/dim]")
+            for c in yn_remaining:
+                default = c.get("selected", False)
+                hint    = "[Y/n]" if default else "[y/N]"
+                raw     = typer.prompt(f"  {c['prompt']} {hint}", default="")
+                raw     = raw.strip().lower()
+                if raw in ("y", "yes"):
+                    answers[c["key"]] = True
+                elif raw in ("n", "no"):
+                    answers[c["key"]] = False
+                else:
+                    answers[c["key"]] = default
+                if answers[c["key"]] != default:
+                    diverged = True
+            if diverged:
+                continue  # re-discover with waiver answers
+
+        # ── Picks — one at a time, re-discover on divergence ─────────────
+        for c in pick_remaining:
+            group       = c.get("group", "other")
+            label       = c.get("label", c["key"])
+            options     = c["options"]
+            display     = c.get("display", options)
+            default_sel = c.get("selected", options[0] if options else "")
+            default_idx = (options.index(default_sel) + 1) if default_sel in options else 1
+
+            if group != prev_group:
+                group_label = _GROUP_LABELS.get(group, "Course Selections")
+                pad = max(0, 47 - len(group_label))
+                rprint(f"\n[bold cyan]── {group_label} {'─' * pad}[/bold cyan]")
+                prev_group = group
+
+            rprint(f"\n  [bold]{label}[/bold]")
+            for i, (opt, disp) in enumerate(zip(options, display), 1):
+                rprint(f"    {i}. {disp}")
+
+            while True:
+                raw = typer.prompt(
+                    f"  Select [1–{len(options)}]",
+                    default=str(default_idx),
+                    show_default=True,
+                ).strip()
+                try:
+                    idx = int(raw)
+                    if 1 <= idx <= len(options):
+                        answers[c["key"]] = options[idx - 1]
+                        break
+                except ValueError:
+                    pass
+                if raw.upper() in options:
+                    answers[c["key"]] = raw.upper()
+                    break
+                rprint(f"  [red]Enter a number between 1 and {len(options)}.[/red]")
+
+            if answers[c["key"]] != default_sel:
+                diverged = True
+                break  # stop collecting; re-discover to refresh downstream options
+
+        if not diverged:
+            break  # all remaining picks matched defaults — done
+
+    return answers
+
+
 @app.command()
 def run(
-    transcript: Path = typer.Argument(..., help="Path to transcript CSV"),
+    transcript: Path = typer.Argument(..., help="Path to transcript CSV or image/PDF"),
     program:    str  = typer.Option(..., "--program", "-p", help="CSE or MIC"),
     answers:    Optional[str] = typer.Option(
         None, "--answers", "-a",
-        help="Answers as inline JSON or path to a JSON file.  "
-             "Keys are AK_* constants (e.g. {\"waiver_eng102\": false}).",
+        help="Skip prompts — supply answers as inline JSON or path to a JSON file.  "
+             "Keys are pick_N / yn_N (e.g. {\"yn_0\": true}).",
     ),
 ) -> None:
     """Run an audit via the API.  Requires login."""
@@ -92,6 +219,7 @@ def run(
 
     answers_dict: dict = {}
     if answers:
+        # Batch / scripted mode: use pre-supplied answers, skip prompts
         ap = Path(answers)
         if ap.exists():
             try:
@@ -105,12 +233,20 @@ def run(
             except json.JSONDecodeError as exc:
                 rprint(f"[red]Bad answers JSON:[/red] {exc}")
                 raise typer.Exit(1)
+        rprint(f"[cyan]Running audit[/cyan] ({program}) …")
+    else:
+        # Interactive mode — incremental discovery + user picks
+        rprint(f"[cyan]Loading choices[/cyan] ({program}) …")
+        answers_dict = _collect_answers_interactive(
+            _API_URL, token, transcript, program,
+        )
 
-    rprint(f"[cyan]Running audit[/cyan] ({program}) …")
+        rprint(f"\n[cyan]Running audit[/cyan] ({program}) …")
+
     try:
         resp = _api.api_post_multipart(
             _API_URL, "/api/audit/run", token,
-            csv_path=transcript, program=program, answers=answers_dict,
+            csv_path=transcript, program=program, answers=answers_dict, save=True,
         )
     except Exception as exc:
         rprint(f"[red]Audit failed:[/red] {exc}")
@@ -251,12 +387,28 @@ def _print_result(result: dict, run_id: str) -> None:
     rprint(f"  Program:           {result['program']}")
     rprint(f"  Credits completed: {result['credit_completed']} / {result['required_credits']}")
     rprint(f"  CGPA:              {result['cgpa']}")
+    if result.get("academic_standing"):
+        rprint(f"  Standing:          {result['academic_standing']}")
     if result.get("waived_courses"):
         rprint(f"  Waived:            {', '.join(result['waived_courses'])}")
+    if result.get("major_electives"):
+        rprint(f"  Major electives:   {', '.join(result['major_electives'])}")
+    if result.get("open_elective"):
+        rprint(f"  Open elective:     {result['open_elective']}")
+    if result.get("free_electives"):
+        rprint(f"  Free electives:    {', '.join(result['free_electives'])}")
     if result.get("prereq_failures"):
         rprint("[yellow]  Prereq failures:[/yellow]")
         for course, reason in result["prereq_failures"].items():
             rprint(f"    {course}: {reason}")
+    not_counted = [
+        r for r in result.get("per_course_detail", [])
+        if not r["counted"] and r.get("reason")
+    ]
+    if not_counted:
+        rprint("[yellow]  Not counted:[/yellow]")
+        for r in not_counted:
+            rprint(f"    {r['course']}: {r['reason']}")
     rprint()
 
 

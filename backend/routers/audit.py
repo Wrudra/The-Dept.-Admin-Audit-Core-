@@ -251,10 +251,11 @@ def _run_audit_in_thread(content: bytes, program: str, answers: dict) -> dict:
 
         # Map calling function → semantic group
         _FUNC_GROUP = {
-            "resolve_cse_choice_groups": "ged_core",
-            "select_mic_core_choices":   "mic_core",
-            "select_electives_cse":      "trail",
-            "select_electives_mic":      "mic_elective",
+            "resolve_cse_choice_groups":          "ged_core",
+            "select_mic_core_choices":            "mic_core",
+            "select_electives_cse":               "trail",
+            "select_electives_mic":               "mic_elective",
+            "resolve_cse_bio_internship_choice":  "bio_internship",
         }
 
         def _detect_group() -> str:

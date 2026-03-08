@@ -259,6 +259,12 @@ export default function AuditPage() {
       subtitle: "Select your free elective courses.",
       icon: <MenuBookIcon />,
     },
+    bio_internship: {
+      title: "Internship / Research or BIO103L",
+      subtitle:
+        "BIO103L and CSE498R/I fill the same 1-credit slot. Choose which one to count; the other will be excluded.",
+      icon: <MenuBookIcon />,
+    },
     other: {
       title: "Other Selections",
       subtitle: "Additional course selections.",
@@ -580,6 +586,7 @@ export default function AuditPage() {
           {/* ── GED / MIC core cards ────────────────────────────────────── */}
           {renderGroupCard("ged_core")}
           {renderGroupCard("mic_core")}
+          {renderGroupCard("bio_internship")}
 
           {/* ── Trail sections (trail selection → course cards) ────────────── */}
           {trailSections.map((section) => {

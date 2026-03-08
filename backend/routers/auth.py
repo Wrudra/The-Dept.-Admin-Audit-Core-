@@ -118,6 +118,7 @@ async def device_start() -> dict:
         "expires_in":       data.get("expires_in", 1800),
         "interval":         data.get("interval", 5),
         "client_id":        settings.google_cli_client_id,
+        "client_secret":    settings.google_cli_client_secret,
     }
 
 

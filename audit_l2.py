@@ -103,12 +103,20 @@ def get_class_equivalence(cgpa: float) -> str:
 def handle_waivers(
     program_key: str,
     allowed_codes: Set[str],
+    transcript_rows: Optional[list] = None,
 ) -> tuple[Set[str],int,Set[str],list[str]]:
     """
     Prompt admin about ENG102 / MAT112 waivers.
     Returns (allowed_codes, required_credits, waived_courses, waiver_notes).
     Waived courses count in Credit Completed only — excluded from Credit Counted & CGPA.
     """
+    # Auto-detect waivers from WV grade rows in the transcript
+    _transcript_wv: Set[str] = set()
+    if transcript_rows:
+        for _r in transcript_rows:
+            if _r.get("grade") == "WV" and _r.get("course_code") in WAIVERABLE_COURSES:
+                _transcript_wv.add(_r["course_code"])
+
     waived_courses: Set[str] = set()
     waiver_notes:   list[str] = []
 
@@ -119,13 +127,19 @@ def handle_waivers(
     print(_bsep())
     print(_bline(""))
 
-    if _prompt_yes_no("Is ENG102 waived for this student?"):
+    if "ENG102" in _transcript_wv:
+        waived_courses.add("ENG102")
+        print(_bline("  → ENG102 waived (detected from transcript)."))
+    elif _prompt_yes_no("Is ENG102 waived for this student?"):
         waived_courses.add("ENG102")
         print(_bline("  → ENG102 waived."))
     else:
         print(_bline("  → ENG102 not waived (grade will count in Credit Counted and CGPA)."))
 
-    if _prompt_yes_no("Is MAT112 waived for this student?"):
+    if "MAT112" in _transcript_wv:
+        waived_courses.add("MAT112")
+        print(_bline("  → MAT112 waived (detected from transcript)."))
+    elif _prompt_yes_no("Is MAT112 waived for this student?"):
         waived_courses.add("MAT112")
         print(_bline("  → MAT112 waived."))
     else:
@@ -417,7 +431,8 @@ def run_audit(args) -> dict:
         allowed_codes    = allowed_codes - _purely_elective
 
     allowed_codes, required_credits, waived_courses, waiver_notes = handle_waivers(
-        program_key, allowed_codes
+        program_key, allowed_codes,
+        transcript_rows=load_transcript(args.transcript),
     )
 
     rows = load_transcript(args.transcript)
