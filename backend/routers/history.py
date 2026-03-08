@@ -1,27 +1,27 @@
 """History router — list, retrieve, and delete past audit runs for the caller."""
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.session import get_current_claims
+from ..auth.session import get_current_user
 from ..database import get_db
 from ..models.audit_run import AuditRun
+from ..models.user import User
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 
 @router.get("/", summary="List the caller's past audit runs")
 async def list_history(
-    limit:   int          = Query(20, ge=1, le=100),
-    offset:  int          = Query(0,  ge=0),
-    db:      AsyncSession = Depends(get_db),
-    claims:  dict         = Depends(get_current_claims),
+    limit:        int          = Query(20, ge=1, le=100),
+    offset:       int          = Query(0,  ge=0),
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
 ) -> dict:
     """Return a paginated list of the caller's audit runs (most recent first)."""
-    user_id = uuid.UUID(claims["user_id"])
+    user_id = current_user.id
     result  = await db.execute(
         select(AuditRun)
         .where(AuditRun.user_id == user_id)
@@ -53,11 +53,11 @@ async def list_history(
 
 @router.get("/{run_id}", summary="Get one past audit run")
 async def get_history_run(
-    run_id: uuid.UUID,
-    db:     AsyncSession = Depends(get_db),
-    claims: dict         = Depends(get_current_claims),
+    run_id:       uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
 ) -> dict:
-    user_id = uuid.UUID(claims["user_id"])
+    user_id = current_user.id
     result  = await db.execute(
         select(AuditRun).where(AuditRun.id == run_id, AuditRun.user_id == user_id)
     )
@@ -78,12 +78,12 @@ async def get_history_run(
 
 @router.delete("/{run_id}", summary="Delete a past audit run")
 async def delete_history_run(
-    run_id: uuid.UUID,
-    db:     AsyncSession = Depends(get_db),
-    claims: dict         = Depends(get_current_claims),
+    run_id:       uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
 ) -> dict:
     """Hard-delete a run owned by the caller."""
-    user_id = uuid.UUID(claims["user_id"])
+    user_id = current_user.id
     result  = await db.execute(
         select(AuditRun).where(AuditRun.id == run_id, AuditRun.user_id == user_id)
     )
