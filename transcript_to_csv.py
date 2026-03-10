@@ -648,6 +648,30 @@ def write_csv(rows: list[dict], out_path: Path) -> None:
         writer.writerows(rows)
 
 
+# ── API helper ────────────────────────────────────────────────────────────────
+
+def convert_to_csv_bytes(src: Path) -> bytes:
+    """OCR *src* (PDF or image) and return the resulting CSV as bytes.
+
+    Used by the FastAPI backend to convert uploaded transcripts in-memory
+    without writing an output file to disk.
+    """
+    is_image = src.suffix.lower() in IMAGE_EXTS
+    pages    = _get_page_images(src)
+    all_rows: list[dict] = []
+    for page in pages:
+        rows = parse_page(page, r_pass=is_image, inpaint_pass=is_image, camscanner_pass=is_image)
+        all_rows.extend(rows)
+    all_rows = _deduplicate(all_rows)
+
+    import io
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=["Course_Code", "Credits", "Grade", "Semester"])
+    writer.writeheader()
+    writer.writerows(all_rows)
+    return buf.getvalue().encode("utf-8")
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
