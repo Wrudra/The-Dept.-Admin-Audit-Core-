@@ -1,0 +1,23 @@
+[build-system]
+requires      = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "nsu-audit-mcp"
+version         = "1.0.0"
+description     = "MCP server wrapper for the NSU Transcript Audit System"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+nsu-audit-mcp = "nsu_audit_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["nsu_audit_mcp*"]
+
+[tool.setuptools.package-data]
+nsu_audit_mcp = ["data/*.json"]

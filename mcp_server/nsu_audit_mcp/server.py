@@ -1,0 +1,694 @@
+"""NSU Audit MCP Server.
+
+Exposes the NSU Transcript Audit backend as a set of Model Context Protocol tools
+so AI assistants (opencode, Claude Desktop, etc.) can run graduation eligibility
+audits on behalf of students and faculty.
+
+Configuration — environment variables:
+  NSU_AUDIT_BASE_URL   Backend base URL            (default: http://localhost:8000)
+  GDRIVE_CLIENT_ID     Google Cloud OAuth client ID for Drive access (optional)
+  GDRIVE_CLIENT_SECRET Google Cloud OAuth client secret for Drive access (optional)
+
+Typical workflow:
+  1. login / login_complete          — authenticate with @northsouth.edu account
+  2. discover_choices                — learn what interactive decisions are needed
+  3. run_audit                       — run the full audit with resolved answers
+  4. Interpret deficiency field      — advise student on missing requirements
+
+For transcripts stored in Google Drive:
+  gdrive_authorize / gdrive_authorize_complete → gdrive_list_files
+  → gdrive_download_and_audit
+"""
+
+import base64
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+import httpx
+from fastmcp import FastMCP
+
+from ._auth import (
+    delete_token,
+    load_token,
+    poll_device_token,
+    save_pending_device,
+)
+from ._client import _base_url, _handle, api_delete, api_get, api_post
+from ._gdrive import (
+    complete_gdrive_flow,
+    gdrive_download_file,
+    gdrive_list_files as _gdrive_list_files,
+    start_gdrive_flow,
+)
+
+# ── MCP application ───────────────────────────────────────────────────────────
+
+mcp = FastMCP(
+    name="nsu-audit",
+    instructions=(
+        "Tools for running graduation eligibility audits on NSU (North South University) "
+        "student transcripts. Programs supported: CSE (130 credits) and MIC (120 credits).\n\n"
+        "Typical OAuth → Audit workflow:\n"
+        "  1. nsu_oauth_start   — begin Google OAuth 2.0 device flow (RFC 8628)\n"
+        "  2. nsu_oauth_complete — finish after browser approval\n"
+        "  3. discover_choices(transcript_path, program) — learn what picks/waivers are needed\n"
+        "  4. run_audit(transcript_path, program, answers) — full audit, get result + deficiency\n\n"
+        "For transcripts on Google Drive:\n"
+        "  gdrive_authorize → gdrive_authorize_complete → gdrive_list_files "
+        "→ gdrive_download_and_audit\n\n"
+        "Catalog / requirements queries (no session needed):\n"
+        "  lookup_course, list_program_requirements"
+    ),
+)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+_ALLOWED_EXTS = {".csv", ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+_MAX_BYTES    = 10 * 1024 * 1024   # 10 MB — mirrors backend limit
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+_EXT_TO_MIME = {
+    ".csv":  "text/csv",
+    ".pdf":  "application/pdf",
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png":  "image/png",
+    ".tif":  "image/tiff",
+    ".tiff": "image/tiff",
+    ".bmp":  "image/bmp",
+}
+
+# ── Input validators ──────────────────────────────────────────────────────────
+
+def _validate_program(program: str) -> str:
+    p = program.strip().upper()
+    if p not in ("CSE", "MIC"):
+        raise ValueError("program must be 'CSE' or 'MIC'.")
+    return p
+
+
+def _validate_run_id(run_id: str) -> str:
+    rid = run_id.strip()
+    if not _UUID_RE.match(rid):
+        raise ValueError(
+            "run_id must be a valid UUID (e.g. '550e8400-e29b-41d4-a716-446655440000')."
+        )
+    return rid.lower()
+
+
+def _validate_transcript_path(path: str) -> Path:
+    """Resolve and validate a local transcript path.
+
+    Checks: file exists, is a regular file, has an allowed extension,
+    and is within the size limit.  Uses Path.resolve() to eliminate
+    directory traversal sequences ('..').
+    """
+    p = Path(path).resolve()
+    if not p.is_file():
+        raise ValueError(f"File not found or not a regular file: {path!r}")
+    ext = p.suffix.lower()
+    if ext not in _ALLOWED_EXTS:
+        raise ValueError(
+            f"Unsupported extension '{ext}'. "
+            f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
+        )
+    size = p.stat().st_size
+    if size > _MAX_BYTES:
+        raise ValueError(
+            f"File is {size / 1024 / 1024:.1f} MB; maximum is 10 MB."
+        )
+    return p
+
+
+def _upload_transcript(
+    path: Path,
+    program: str,
+    answers: dict,
+    save: bool,
+) -> dict:
+    """POST a transcript file to the backend /api/audit/run endpoint."""
+    token = load_token()
+    if not token:
+        raise RuntimeError("Not authenticated. Call the `login` tool first.")
+
+    content  = path.read_bytes()
+    ext      = path.suffix.lower()
+    mime     = _EXT_TO_MIME.get(ext, "application/octet-stream")
+
+    with httpx.Client(timeout=120) as client:
+        resp = client.post(
+            f"{_base_url()}/api/audit/run",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"transcript": (path.name, content, mime)},
+            data={
+                "program": program,
+                "answers": json.dumps(answers),
+                "save":    "true" if save else "false",
+            },
+        )
+    return _handle(resp)
+
+
+# ── Catalog loader (shared by lookup_course) ──────────────────────────────────
+
+_CATALOG: Optional[set] = None
+
+
+def _load_catalog() -> set:
+    global _CATALOG
+    if _CATALOG is None:
+        # Try repo root first (development install), then bundled package data.
+        candidates = [
+            Path(__file__).parent.parent.parent / "nsu_catalog.json",
+            Path(__file__).parent / "data" / "nsu_catalog.json",
+        ]
+        for p in candidates:
+            if p.exists():
+                try:
+                    _CATALOG = set(json.loads(p.read_text()))
+                    break
+                except Exception:
+                    pass
+        if _CATALOG is None:
+            _CATALOG = set()
+    return _CATALOG
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTH TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def nsu_oauth_start() -> dict:
+    """Begin Google OAuth 2.0 Device Authorization for the NSU Audit API.
+
+    This is a standard OAuth 2.0 device flow (RFC 8628) — no passwords are
+    handled by this tool. It asks Google's authorization server for a
+    ``user_code`` and ``verification_url`` that the student opens in their
+    own browser to grant read-only access to their NSU audit data.
+
+    Steps:
+      1. Call this tool — it returns ``user_code`` and ``verification_url``.
+      2. Open ``verification_url`` in a browser and enter ``user_code``.
+      3. Approve access (only @northsouth.edu accounts are accepted).
+      4. Call ``nsu_oauth_complete`` to exchange the grant for an API session.
+    """
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(f"{_base_url()}/api/auth/device/start")
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to start OAuth flow: {resp.text}")
+    data = resp.json()
+    save_pending_device(data)
+    return {
+        "user_code":        data["user_code"],
+        "verification_url": data["verification_url"],
+        "next_step": (
+            "Open the verification_url in a browser, enter the user_code when prompted, "
+            "approve access, then call `nsu_oauth_complete`."
+        ),
+    }
+
+
+@mcp.tool()
+def nsu_oauth_complete() -> dict:
+    """Complete the Google OAuth 2.0 device flow after browser approval.
+
+    Call this after the user has entered ``user_code`` at the
+    ``verification_url`` and approved access in their browser.
+    Polls Google's token endpoint (RFC 8628 §3.5) for up to 30 seconds.
+    If still waiting, confirm browser approval and call this tool again.
+    """
+    access_token = poll_device_token(_base_url())
+    # Decode JWT payload (display only — we trust the token we just received from our backend).
+    try:
+        parts   = access_token.split(".")
+        padding = 4 - len(parts[1]) % 4
+        payload = json.loads(
+            base64.urlsafe_b64decode(parts[1] + "=" * padding)
+        )
+        return {
+            "ok":           True,
+            "email":        payload.get("email", ""),
+            "display_name": payload.get("name", ""),
+            "message":      "OAuth session established. Valid for 7 days.",
+        }
+    except Exception:
+        return {"ok": True, "message": "OAuth session established."}
+
+
+@mcp.tool()
+def nsu_sign_out() -> dict:
+    """Revoke the local NSU Audit API session.
+
+    Removes the locally cached OAuth token from disk. The JWT itself is
+    stateless and expires automatically after 7 days; this call simply
+    ensures it cannot be reused from this machine before expiry.
+    """
+    delete_token()
+    return {"ok": True, "message": "Session revoked. Local credentials removed."}
+
+
+@mcp.tool()
+def nsu_current_user() -> dict:
+    """Return the profile of the currently authenticated NSU Audit API user.
+
+    Returns user_id, email, display_name, and is_admin flag from the
+    active OAuth session. Raises an error if no session exists or it
+    has expired — call ``nsu_oauth_start`` to create a new one.
+    """
+    return api_get("/api/auth/me")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUDIT TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def discover_choices(
+    transcript_path: str,
+    program: str,
+    answers: Optional[dict] = None,
+) -> dict:
+    """Preview the interactive choices the audit engine will ask for.
+
+    Submits the transcript without saving a run record and returns a
+    ``choices`` array that describes every decision point:
+      - Waiver confirmations (ENG102, MAT112)
+      - Specialization trail selection (CSE only — 6 available trails)
+      - Elective course picks
+      - Internship/project slot choices
+
+    Use the ``choices`` array to build a complete ``answers`` dict of the form::
+
+        {
+          "yn_0": true,          # waiver accepted
+          "pick_0": "CSE440",    # trail course 1
+          "pick_1": "CSE445",    # trail course 2
+          ...
+        }
+
+    Then pass that dict to ``run_audit``.  Call this tool again with a
+    partial ``answers`` dict whenever a pick changes the downstream options.
+
+    Args:
+        transcript_path: Absolute path to the transcript file (.csv, .pdf, image).
+        program:         Degree program — ``'CSE'`` or ``'MIC'``.
+        answers:         Optional partial answers dict from a previous call.
+    """
+    p    = _validate_transcript_path(transcript_path)
+    prog = _validate_program(program)
+    return _upload_transcript(p, prog, answers or {}, save=False)
+
+
+@mcp.tool()
+def run_audit(
+    transcript_path: str,
+    program: str,
+    answers: Optional[dict] = None,
+    save: bool = True,
+) -> dict:
+    """Run a full graduation eligibility audit on a student transcript.
+
+    Accepts CSV (already converted), PDF, or a scanned image.
+    For PDFs and images the backend OCR-converts the file automatically.
+
+    Returns a result dict that includes:
+      - ``cgpa``              Computed GPA on the NSU 4.0 scale
+      - ``credit_completed``  Total valid credits earned
+      - ``required_credits``  Credits needed for the degree (130 CSE / 120 MIC)
+      - ``academic_standing`` First Class / Second Class / Third Class / Below Standard
+      - ``deficiency``        Eligibility verdict with:
+          - ``eligible``              bool
+          - ``credit_shortfall``      float (0 if none)
+          - ``probation``             bool (CGPA < 2.0)
+          - ``missing_mandatory``     list of {category, courses[]}
+          - ``prereq_failures_list``  list of {course, reason}
+      - ``run_id``            UUID for later retrieval (only when save=True)
+
+    Call ``discover_choices`` first to learn what keys to include in ``answers``.
+
+    Args:
+        transcript_path: Absolute path to the transcript file (.csv, .pdf, image).
+        program:         Degree program — ``'CSE'`` or ``'MIC'``.
+        answers:         Pre-supplied choices dict (keys: pick_0, yn_0, ...).
+        save:            Persist the run to the database (default True).
+    """
+    p    = _validate_transcript_path(transcript_path)
+    prog = _validate_program(program)
+    return _upload_transcript(p, prog, answers or {}, save=save)
+
+
+@mcp.tool()
+def get_audit_run(run_id: str) -> dict:
+    """Retrieve the full result and answers for a previously saved audit run.
+
+    Args:
+        run_id: UUID of the audit run (from the ``run_audit`` response).
+    """
+    rid = _validate_run_id(run_id)
+    return api_get(f"/api/audit/{rid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HISTORY TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def list_audit_history(limit: int = 20, offset: int = 0) -> dict:
+    """List the authenticated user's past audit runs, most recent first.
+
+    Returns a lightweight summary per run (cgpa, credit_completed, program,
+    status, timestamps).  Use ``get_audit_run`` for the full result of a run.
+
+    Args:
+        limit:  Number of runs to return (1–100, default 20).
+        offset: Pagination offset (default 0).
+    """
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100.")
+    if offset < 0:
+        raise ValueError("offset must be non-negative.")
+    return api_get(f"/api/history/?limit={limit}&offset={offset}")
+
+
+@mcp.tool()
+def get_history_run(run_id: str) -> dict:
+    """Get the full result and stored answers for a specific past audit run.
+
+    Args:
+        run_id: UUID of the audit run.
+    """
+    rid = _validate_run_id(run_id)
+    return api_get(f"/api/history/{rid}")
+
+
+@mcp.tool()
+def delete_audit_run(run_id: str) -> dict:
+    """Permanently delete a past audit run from the database.
+
+    This action is irreversible.  Only the owner of the run can delete it.
+
+    Args:
+        run_id: UUID of the audit run to delete.
+    """
+    rid = _validate_run_id(run_id)
+    return api_delete(f"/api/history/{rid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CATALOG & REQUIREMENTS TOOLS  (no auth required)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def lookup_course(course_code: str) -> dict:
+    """Check whether a course code exists in the NSU Spring 2026 catalog.
+
+    Useful for validating elective selections before running an audit.
+
+    Args:
+        course_code: NSU course code, e.g. ``'CSE115'``, ``'MAT250'``, ``'ENG102'``.
+    """
+    code = course_code.strip().upper()
+    # Validate format: 2–4 uppercase letters + 3 digits + optional 1 letter.
+    if not re.fullmatch(r"[A-Z]{2,4}[0-9]{3}[A-Z]?", code):
+        raise ValueError(
+            f"Invalid course code format: {course_code!r}. "
+            "Expected format: 2–4 letters + 3 digits (e.g. CSE115, MAT130)."
+        )
+    catalog     = _load_catalog()
+    in_catalog  = code in catalog
+    return {
+        "course_code":    code,
+        "in_nsu_catalog": in_catalog,
+        "note": "" if in_catalog else "Not found in the NSU Spring 2026 catalog.",
+    }
+
+
+@mcp.tool()
+def list_program_requirements(program: str) -> dict:
+    """Return the credit structure and graduation requirements for a degree program.
+
+    Args:
+        program: ``'CSE'`` (Computer Science & Engineering) or ``'MIC'`` (Microbiology).
+    """
+    prog = _validate_program(program)
+
+    if prog == "CSE":
+        return {
+            "program":                "CSE",
+            "total_required_credits": 130,
+            "minimum_cgpa":           2.0,
+            "academic_standing": {
+                "First Class":    "CGPA >= 3.0",
+                "Second Class":   "CGPA 2.5 – 2.99",
+                "Third Class":    "CGPA 2.0 – 2.49",
+                "Below Standard": "CGPA < 2.0 (ineligible)",
+            },
+            "categories": {
+                "University Core": {
+                    "credits": 21,
+                    "notes": (
+                        "MAT116 (0cr, prereq-only), MAT125, MAT130, PHY107+L, "
+                        "CHE101+L, BIO103, and one of: BIO103L / CSE498R / CSE498I (1 cr)"
+                    ),
+                },
+                "GED (General Education)": {
+                    "credits": 21,
+                    "notes": (
+                        "ENG102 (waiverable, 3cr), BUS101, ECO101, CIS101 (3cr each). "
+                        "Choice groups: PHI101 or PHI104; SOC101 or ANT101; "
+                        "PSY101, PSY201, or SOC201."
+                    ),
+                },
+                "CSE Core": {
+                    "credits": 60,
+                    "key_courses": [
+                        "CSE115+L", "CSE215", "CSE225", "CSE231L", "CSE311+L",
+                        "CSE321", "CSE331+L", "CSE341+L", "CSE411", "CSE421",
+                        "CSE422", "CSE431", "CSE461+L",
+                    ],
+                },
+                "Specialization Trail": {
+                    "credits": 9,
+                    "notes": "3 electives from one trail.",
+                    "trails": [
+                        "Algorithms & Computation",
+                        "Software Engineering",
+                        "Computer Networks",
+                        "VLSI Design",
+                        "Artificial Intelligence",
+                        "Bioinformatics",
+                    ],
+                },
+                "Open Elective": {
+                    "credits": 3,
+                    "notes": "Any valid NSU course not already counted (capped at 3 cr).",
+                },
+                "Internship": {
+                    "credits": 3,
+                    "course":  "CSE400 (or CSE498R/CSE498I in BIO103L slot)",
+                },
+                "Senior Project": {
+                    "credits": 6,
+                    "courses": ["CSE499A (3cr)", "CSE499B (3cr)"],
+                },
+            },
+            "waiverable_courses": {
+                "ENG102": "English Language course — counts toward credits completed but not CGPA",
+                "MAT116": "0-credit prerequisite-only course — excluded from CGPA",
+            },
+        }
+
+    else:  # MIC
+        return {
+            "program":                "MIC",
+            "total_required_credits": 120,
+            "minimum_cgpa":           2.0,
+            "academic_standing": {
+                "First Class":    "CGPA >= 3.0",
+                "Second Class":   "CGPA 2.5 – 2.99",
+                "Third Class":    "CGPA 2.0 – 2.49",
+                "Below Standard": "CGPA < 2.0 (ineligible)",
+            },
+            "categories": {
+                "University Core": {
+                    "credits": 18,
+                    "notes": (
+                        "MAT112 (waiverable), PHY107+L, CHE101+L, CHE102+L, "
+                        "BIO103+L, MAT125"
+                    ),
+                },
+                "SHLS Core (Humanities / Social / Language)": {
+                    "credits": 18,
+                    "notes": (
+                        "ENG102 (waiverable), plus language, humanities, and "
+                        "social science choice groups."
+                    ),
+                },
+                "Major Core": {
+                    "credits": 60,
+                    "notes":   "MIC-prefix required courses.",
+                },
+                "Major Electives": {
+                    "credits": 9,
+                    "notes":   "3 MIC-prefix elective courses.",
+                },
+                "Free Electives": {
+                    "credits": 9,
+                    "notes":   "3 courses from anywhere in the NSU catalog.",
+                },
+            },
+            "waiverable_courses": {
+                "ENG102": "Counted toward credits completed but not CGPA",
+                "MAT112": "Counted toward credits completed but not CGPA",
+            },
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN TOOL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def get_admin_stats() -> dict:
+    """Return platform-wide aggregate statistics. Requires admin access.
+
+    Includes:
+      - ``total_runs``, ``total_users``
+      - ``runs_by_program`` (CSE vs MIC counts)
+      - ``avg_cgpa``, ``avg_credits``
+      - ``recent_runs`` (last 20 runs across all users with user identity)
+
+    Raises a 403 error if the authenticated user is not an admin.
+    """
+    return api_get("/api/admin/stats")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GOOGLE DRIVE TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def gdrive_authorize() -> dict:
+    """Start Google Drive read-only authorization (device flow).
+
+    Requires ``GDRIVE_CLIENT_ID`` and ``GDRIVE_CLIENT_SECRET`` environment
+    variables from a Google Cloud project with the Drive API enabled
+    (OAuth client type: Desktop app).
+
+    Returns a ``user_code`` and ``verification_url``:
+      1. Open ``verification_url`` in a browser.
+      2. Enter ``user_code`` when prompted.
+      3. Approve read-only Drive access.
+    Then call ``gdrive_authorize_complete``.
+
+    Access is strictly read-only (``drive.readonly`` scope).
+    """
+    result = start_gdrive_flow()
+    return {
+        **result,
+        "scope": "drive.readonly — read access only, no modifications",
+        "next_step": (
+            "Open the verification_url in a browser, enter the user_code, "
+            "approve access, then call `gdrive_authorize_complete`."
+        ),
+    }
+
+
+@mcp.tool()
+def gdrive_authorize_complete() -> dict:
+    """Finish Google Drive authorization after browser approval.
+
+    Call after entering the code and approving access in the browser.
+    Polls for up to 60 seconds.  If it times out, call this tool again.
+    """
+    complete_gdrive_flow()
+    return {
+        "ok":      True,
+        "message": "Google Drive read-only access authorized successfully.",
+    }
+
+
+@mcp.tool()
+def gdrive_list_files(search: str = "", page_size: int = 20) -> list:
+    """List PDF and image files in the user's Google Drive.
+
+    Without a ``search`` term, returns PDFs and images ordered by most
+    recently modified — useful to surface the latest transcript upload.
+
+    Args:
+        search:    Optional filename search term (e.g. ``'transcript'``).
+        page_size: Number of results to return (1–100, default 20).
+
+    Returns a list of file objects with ``id``, ``name``, ``mimeType``,
+    ``size``, and ``modifiedTime``.  Pass the ``id`` to
+    ``gdrive_download_and_audit``.
+    """
+    if not 1 <= page_size <= 100:
+        raise ValueError("page_size must be between 1 and 100.")
+    return _gdrive_list_files(query=search, page_size=page_size)
+
+
+@mcp.tool()
+def gdrive_download_and_audit(
+    file_id: str,
+    program: str,
+    answers: Optional[dict] = None,
+    save: bool = True,
+) -> dict:
+    """Download a transcript from Google Drive and run a graduation eligibility audit.
+
+    Combines Google Drive download and ``run_audit`` in one step.
+    The file is downloaded to a secure temporary path, submitted to the
+    backend, and the temp file is deleted immediately after.
+
+    Requires both NSU Audit login (``login`` / ``login_complete``) and
+    Google Drive authorization (``gdrive_authorize`` / ``gdrive_authorize_complete``).
+
+    Args:
+        file_id: Google Drive file ID (from ``gdrive_list_files``).
+        program: Degree program — ``'CSE'`` or ``'MIC'``.
+        answers: Pre-supplied choices dict (see ``discover_choices``).
+        save:    Persist the run to the database (default True).
+    """
+    prog = _validate_program(program)
+
+    # Download from Drive (validates file ID, MIME type, and size).
+    file_bytes, filename = gdrive_download_file(file_id)
+
+    ext = Path(filename).suffix.lower()
+    if not ext:
+        ext = ".pdf"   # default if Drive filename has no extension
+    if ext not in _ALLOWED_EXTS:
+        raise ValueError(
+            f"Unsupported file extension '{ext}' from Google Drive. "
+            f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
+        )
+
+    # Write to a secure temp file (mkstemp avoids race conditions), upload, then delete.
+    fd, tmp_str = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+    tmp = Path(tmp_str)
+    try:
+        tmp.write_bytes(file_bytes)
+        # Use only the basename of the Drive filename to prevent path traversal.
+        safe_name = Path(filename).name or f"transcript{ext}"
+        tmp = tmp.rename(tmp.parent / safe_name)
+        return _upload_transcript(tmp, prog, answers or {}, save=save)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    """Run the MCP server over stdio (compatible with opencode, Claude Desktop, etc.)."""
+    mcp.run()
