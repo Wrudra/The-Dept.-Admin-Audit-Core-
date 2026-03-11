@@ -27,9 +27,15 @@ from . import api as _api
 app = typer.Typer(
     name="nsu-audit",
     help="NSU Transcript Audit Tool",
-    no_args_is_help=True,
     add_completion=False,
 )
+
+
+@app.callback(invoke_without_command=True)
+def _tui_callback(ctx: typer.Context) -> None:
+    """Launch the interactive TUI when called with no sub-command."""
+    if ctx.invoked_subcommand is None:
+        _tui()
 
 _API_URL = os.environ.get("NSU_AUDIT_API_URL", "http://localhost:8000")
 
@@ -324,9 +330,12 @@ def run(
 
 # ── Local audit (no API, no login needed) ─────────────────────────────────────
 
+_LOCAL_OCR_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+
+
 @app.command("run-local")
 def run_local(
-    transcript: Path = typer.Argument(..., help="Path to transcript CSV"),
+    transcript: Path = typer.Argument(..., help="Path to transcript CSV, PDF, or image"),
     program:    str  = typer.Option(..., "--program", "-p", help="CSE or MIC"),
     answers:    Optional[str] = typer.Option(
         None, "--answers", "-a",
@@ -344,6 +353,38 @@ def run_local(
         rprint(f"[red]program.md not found at {_PROGRAM_MD}[/red]")
         raise typer.Exit(1)
 
+    # ── OCR pre-processing for PDF / image files ──────────────────────────────
+    if transcript.suffix.lower() in _LOCAL_OCR_EXTS:
+        _repo = Path(__file__).parent.parent
+        if str(_repo) not in sys.path:
+            sys.path.insert(0, str(_repo))
+        try:
+            from run_pipeline import convert_transcript
+        except ImportError as exc:
+            rprint(f"[red]OCR engine not available:[/red] {exc}")
+            raise typer.Exit(1)
+        import tempfile
+        rprint(f"[cyan]Converting {transcript.suffix.upper()} to CSV via OCR…[/cyan]")
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            tmp_csv = Path(_tmpdir) / (transcript.stem + ".csv")
+            try:
+                convert_transcript(transcript, tmp_csv)
+            except SystemExit as exc:
+                rprint(f"[red]OCR failed:[/red] {exc}")
+                raise typer.Exit(1)
+            _run_local_csv(tmp_csv, program, answers, no_interact)
+        return
+
+    _run_local_csv(transcript, program, answers, no_interact)
+
+
+def _run_local_csv(
+    transcript: Path,
+    program: str,
+    answers: Optional[str],
+    no_interact: bool,
+) -> None:
+    """Core local-audit logic — expects a CSV file."""
     answers_dict: dict = {}
     if answers:
         ap = Path(answers)
@@ -692,6 +733,245 @@ def _print_result(result: dict, run_id: str, transcript_name: str = "") -> None:
 
     rprint()
     rprint(f"[dim]  Run ID: {run_id[:8]}[/dim]")
+
+
+# ── TUI ───────────────────────────────────────────────────────────────────────
+
+def _tui_do_login() -> None:
+    """Device login flow inside the TUI."""
+    rprint()
+    try:
+        token = device_login(_API_URL)
+    except Exception as exc:
+        rprint(f"\n[red]Login failed:[/red] {exc}")
+        input("\n  Press Enter to continue…")
+        return
+    save_token(token)
+    rprint("\n[green]✓ Logged in successfully.[/green]")
+    rprint("  Credentials saved to ~/.config/nsu-audit/credentials.json")
+    input("\n  Press Enter to continue…")
+
+
+def _tui_do_logout() -> None:
+    """Logout with confirmation inside the TUI."""
+    import questionary
+    rprint()
+    if questionary.confirm("Log out?", default=False).ask():
+        delete_token()
+        rprint("[yellow]Logged out.[/yellow]")
+    input("\n  Press Enter to continue…")
+
+
+def _tui_do_run_audit(token: str) -> None:
+    """Guided new audit inside the TUI."""
+    import questionary
+    rprint()
+
+    path_str = questionary.path(
+        "Path to transcript CSV / PDF / image:",
+        validate=lambda p: True if Path(p).exists() else "File not found",
+    ).ask()
+    if path_str is None:
+        return
+
+    transcript = Path(path_str)
+    program = questionary.select("Program:", choices=["CSE", "MIC"]).ask()
+    if program is None:
+        return
+
+    rprint(f"\n[cyan]Loading choices[/cyan] ({program}) …")
+    try:
+        answers_dict = _collect_answers_interactive(_API_URL, token, transcript, program)
+        rprint(f"\n[cyan]Running audit[/cyan] ({program}) …")
+        resp = _api.api_post_multipart(
+            _API_URL, "/api/audit/run", token,
+            csv_path=transcript, program=program, answers=answers_dict, save=True,
+        )
+    except (SystemExit, typer.Exit):
+        return
+    except Exception as exc:
+        rprint(f"\n[red]Audit failed:[/red] {exc}")
+        input("\n  Press Enter to continue…")
+        return
+
+    _print_result(resp["result"], resp["run_id"], transcript_name=transcript.name)
+    input("\n  Press Enter to return to menu…")
+
+
+def _tui_do_history(token: str) -> None:
+    """Show audit history inside the TUI."""
+    rprint()
+    try:
+        data = _api.api_get(_API_URL, "/api/history/", token, limit=10, offset=0)
+    except Exception as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        input("\n  Press Enter to continue…")
+        return
+
+    runs = data["runs"]
+    if not runs:
+        rprint("[dim]No audit runs yet.[/dim]")
+        input("\n  Press Enter to continue…")
+        return
+
+    table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+    table.add_column("Run ID",   style="dim", width=10)
+    table.add_column("Program",  width=7)
+    table.add_column("CGPA",     width=6)
+    table.add_column("Credits",  width=12)
+    table.add_column("Status",   width=10)
+    table.add_column("Date",     width=20)
+    for r in runs:
+        cgpa    = str(r["cgpa"]) if r["cgpa"] is not None else "—"
+        credits = (
+            f"{r['credit_completed']}/{r['required_credits']}"
+            if r["credit_completed"] is not None else "—"
+        )
+        table.add_row(
+            r["run_id"][:8], r["program"], cgpa, credits,
+            r["status"], r["created_at"][:19].replace("T", " "),
+        )
+    rprint(table)
+    input("\n  Press Enter to return to menu…")
+
+
+def _tui_do_admin_stats(token: str) -> None:
+    """Show admin stats inside the TUI."""
+    rprint()
+    try:
+        data = _api.api_get(_API_URL, "/api/admin/stats", token)
+    except Exception as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        input("\n  Press Enter to continue…")
+        return
+
+    rprint(_btop())
+    rprint(_bline("ADMIN STATS"))
+    rprint(_bsep())
+    for k, v in data.items():
+        if isinstance(v, dict):
+            rprint(_bline(f"  {k}:"))
+            for dk, dv in v.items():
+                rprint(_bline(f"      {dk}: {dv}"))
+        elif isinstance(v, list):
+            rprint(_bline(f"  {k}:  ({len(v)} entries)"))
+            for i, item in enumerate(v, 1):
+                rprint(_bsep())
+                if isinstance(item, dict):
+                    for ik, iv in item.items():
+                        rprint(_bline(f"    {ik}: {iv}"))
+                else:
+                    rprint(_bline(f"    {item}"))
+        else:
+            rprint(_bline(f"  {k}: {v}"))
+    rprint(_bbot())
+    input("\n  Press Enter to return to menu…")
+
+
+def _tui_do_run_local() -> None:
+    """Run a local audit (no API, no login) inside the TUI."""
+    import questionary
+    rprint()
+
+    _all_exts = {".csv"} | _LOCAL_OCR_EXTS
+
+    def _validate_path(p: str) -> bool | str:
+        if not Path(p).exists():
+            return "File not found"
+        if Path(p).suffix.lower() not in _all_exts:
+            return f"Unsupported file type. Accepted: {', '.join(sorted(_all_exts))}"
+        return True
+
+    path_str = questionary.path(
+        "Path to transcript (CSV / PDF / image):",
+        validate=_validate_path,
+    ).ask()
+    if path_str is None:
+        return
+
+    transcript = Path(path_str)
+    program = questionary.select("Program:", choices=["CSE", "MIC"]).ask()
+    if program is None:
+        return
+
+    try:
+        run_local(transcript=transcript, program=program, answers=None, no_interact=False)
+    except (SystemExit, typer.Exit):
+        pass
+
+    input("\n  Press Enter to return to menu…")
+
+
+def _tui() -> None:
+    """Interactive TUI — invoked when `nsu-audit` is run with no sub-command."""
+    try:
+        import questionary
+        from questionary import Separator
+    except ImportError:
+        rprint("[red]questionary is not installed.[/red]  Run:  pip install questionary")
+        raise typer.Exit(1)
+
+    while True:
+        os.system("clear" if os.name != "nt" else "cls")
+
+        # Refresh auth state on every loop iteration
+        token = load_token()
+        username: Optional[str] = None
+        if token:
+            try:
+                data = _api.api_get(_API_URL, "/api/auth/me", token)
+                username = data.get("display_name") or data.get("email")
+            except Exception:
+                token = None
+
+        rprint()
+        rprint(_btop())
+        rprint(_bline("  NSU AUDIT TOOL"))
+        if username:
+            rprint(_bline(f"  Welcome, {username}"))
+        else:
+            rprint(_bline("  Not logged in"))
+        rprint(_bbot())
+        rprint()
+
+        if token and username:
+            choice = questionary.select(
+                "What would you like to do?",
+                choices=[
+                    "Run New Audit",
+                    "View History",
+                    "Admin Stats",
+                    Separator(),
+                    "Log Out",
+                    "Exit",
+                ],
+            ).ask()
+        else:
+            choice = questionary.select(
+                "What would you like to do?",
+                choices=[
+                    "Log In",
+                    "Run Local Audit",
+                    Separator(),
+                    "Exit",
+                ],
+            ).ask()
+
+        if choice is None or choice == "Exit":
+            break
+
+        if choice == "Log In":
+            _tui_do_login()
+        elif choice == "Log Out":
+            _tui_do_logout()
+        elif choice == "Run New Audit":
+            _tui_do_run_audit(token)
+        elif choice == "View History":
+            _tui_do_history(token)
+        elif choice == "Admin Stats":
+            _tui_do_admin_stats(token)
+        elif choice == "Run Local Audit":
+            _tui_do_run_local()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
