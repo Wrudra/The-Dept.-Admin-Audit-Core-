@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     gdrive_client_id:     str = ""
     gdrive_client_secret: str = ""
 
+    # ── Hosted MCP server ────────────────────────────────────────────────────
+    # Optional shared secret — if set, every /mcp request must carry:
+    #   X-MCP-Secret: <value>
+    # Leave empty ("") to allow open access (development only).
+    mcp_shared_secret: str = ""
+
     # ── App ──────────────────────────────────────────────────────────────────
     app_env:              str = "development"
     backend_url:          str = "http://localhost:8000"

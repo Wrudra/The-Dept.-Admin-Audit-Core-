@@ -21,3 +21,6 @@ itsdangerous>=2.2                # used by starlette.middleware.sessions
 
 # ── File uploads (Phase 2) ────────────────────────────────────────────────────
 python-multipart>=0.0.20
+
+# ── Hosted MCP server (mounted at /mcp in main.py) ───────────────────────────
+fastmcp>=3.0

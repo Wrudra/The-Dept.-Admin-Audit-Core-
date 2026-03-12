@@ -14,7 +14,9 @@ RUN apt-get update && \
 
 COPY requirements.txt          ./requirements_ocr.txt
 COPY backend/requirements.txt  ./requirements_api.txt
-RUN pip install --no-cache-dir -r requirements_ocr.txt -r requirements_api.txt
+COPY mcp_server/               ./mcp_server/
+RUN pip install --no-cache-dir -r requirements_ocr.txt -r requirements_api.txt \
+    && pip install --no-cache-dir ./mcp_server/
 
 # ── Stage 2: Runtime image ────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -36,7 +38,8 @@ WORKDIR /app
 # Copy the application code
 COPY audit_l1.py audit_l2.py audit_l3.py run_pipeline.py \
      transcript_to_csv.py program.md nsu_catalog.json ./
-COPY backend/ ./backend/
+COPY backend/    ./backend/
+COPY mcp_server/ ./mcp_server/
 COPY alembic/  ./alembic/
 COPY alembic.ini ./
 

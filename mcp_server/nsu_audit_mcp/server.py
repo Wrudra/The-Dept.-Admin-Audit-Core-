@@ -8,16 +8,27 @@ Configuration — environment variables:
   NSU_AUDIT_BASE_URL   Backend base URL  (default: http://localhost:8000)
 
 Typical workflow:
-  1. login / login_complete          — authenticate with @northsouth.edu account
-  2. discover_choices                — learn what interactive decisions are needed
-  3. run_audit                       — run the full audit with resolved answers
-  4. Interpret deficiency field      — advise student on missing requirements
+  1. nsu_oauth_start / nsu_oauth_complete  — authenticate with @northsouth.edu account
+  2. discover_choices                       — learn what interactive decisions are needed
+  3. run_audit                              — run the full audit with resolved answers
+  4. Interpret deficiency field             — advise student on missing requirements
 
 For transcripts stored in Google Drive:
   gdrive_authorize / gdrive_authorize_complete → gdrive_list_files
   → gdrive_download_and_audit
-"""
 
+── Hosted vs stdio mode ──────────────────────────────────────────────────────
+When running as a hosted HTTP/SSE server (mounted in FastAPI), each connecting
+client has its own FastMCP session.  JWTs are stored in session state via
+ctx.set_state / ctx.get_state — fully isolated per user.
+
+When running as a local stdio binary (classic mode), session state still works
+and tokens are ALSO saved to disk (~/.config/nsu-audit-mcp/credentials.json)
+so they persist across process restarts without re-authentication.
+"""
+from __future__ import annotations
+
+import asyncio
 import base64
 import json
 import os
@@ -27,15 +38,26 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 
 from ._auth import (
+    clear_pending,
+    clear_token,
     delete_token,
-    load_token,
-    poll_device_token,
-    save_pending_device,
+    get_pending,
+    get_token,
+    poll_with_pending,
+    store_pending,
+    store_token,
 )
-from ._client import _base_url, _handle, api_delete, api_get, api_post
+from ._client import (
+    _base_url,
+    _handle,
+    api_delete,
+    api_get,
+    api_post,
+    get_token_or_raise,
+)
 from ._gdrive import (
     complete_gdrive_flow,
     gdrive_download_file,
@@ -110,12 +132,7 @@ def _validate_run_id(run_id: str) -> str:
 
 
 def _validate_transcript_path(path: str) -> Path:
-    """Resolve and validate a local transcript path.
-
-    Checks: file exists, is a regular file, has an allowed extension,
-    and is within the size limit.  Uses Path.resolve() to eliminate
-    directory traversal sequences ('..').
-    """
+    """Resolve and validate a local transcript path."""
     p = Path(path).resolve()
     if not p.is_file():
         raise ValueError(f"File not found or not a regular file: {path!r}")
@@ -138,12 +155,9 @@ def _upload_transcript(
     program: str,
     answers: dict,
     save: bool,
+    token: str,
 ) -> dict:
     """POST a transcript file to the backend /api/audit/run endpoint."""
-    token = load_token()
-    if not token:
-        raise RuntimeError("Not authenticated. Call the `login` tool first.")
-
     content  = path.read_bytes()
     ext      = path.suffix.lower()
     mime     = _EXT_TO_MIME.get(ext, "application/octet-stream")
@@ -170,7 +184,6 @@ _CATALOG: Optional[set] = None
 def _load_catalog() -> set:
     global _CATALOG
     if _CATALOG is None:
-        # Try repo root first (development install), then bundled package data.
         candidates = [
             Path(__file__).parent.parent.parent / "nsu_catalog.json",
             Path(__file__).parent / "data" / "nsu_catalog.json",
@@ -192,7 +205,7 @@ def _load_catalog() -> set:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def nsu_oauth_start() -> dict:
+async def nsu_oauth_start(ctx: Context) -> dict:
     """Begin Google OAuth 2.0 Device Authorization for the NSU Audit API.
 
     This is a standard OAuth 2.0 device flow (RFC 8628) — no passwords are
@@ -211,7 +224,8 @@ def nsu_oauth_start() -> dict:
     if resp.status_code != 200:
         raise RuntimeError(f"Failed to start OAuth flow: {resp.text}")
     data = resp.json()
-    save_pending_device(data)
+    # Store in session state (isolated per user in hosted mode) + disk (stdio mode).
+    await store_pending(ctx, data)
     return {
         "user_code":        data["user_code"],
         "verification_url": data["verification_url"],
@@ -223,7 +237,7 @@ def nsu_oauth_start() -> dict:
 
 
 @mcp.tool()
-def nsu_oauth_complete() -> dict:
+async def nsu_oauth_complete(ctx: Context) -> dict:
     """Complete the Google OAuth 2.0 device flow after browser approval.
 
     Call this after the user has entered ``user_code`` at the
@@ -231,8 +245,24 @@ def nsu_oauth_complete() -> dict:
     Polls Google's token endpoint (RFC 8628 §3.5) for up to 30 seconds.
     If still waiting, confirm browser approval and call this tool again.
     """
-    access_token = poll_device_token(_base_url())
-    # Decode JWT payload (display only — we trust the token we just received from our backend).
+    pending = await get_pending(ctx)
+    if not pending:
+        raise RuntimeError(
+            "No pending login found. Call `nsu_oauth_start` first."
+        )
+
+    # Run the blocking poll in a thread so we don't stall the event loop.
+    try:
+        access_token = await asyncio.to_thread(
+            poll_with_pending, _base_url(), pending
+        )
+    except RuntimeError:
+        await clear_pending(ctx)
+        raise
+
+    await store_token(ctx, access_token)
+    await clear_pending(ctx)
+
     try:
         parts   = access_token.split(".")
         padding = 4 - len(parts[1]) % 4
@@ -250,26 +280,26 @@ def nsu_oauth_complete() -> dict:
 
 
 @mcp.tool()
-def nsu_sign_out() -> dict:
+async def nsu_sign_out(ctx: Context) -> dict:
     """Revoke the local NSU Audit API session.
 
-    Removes the locally cached OAuth token from disk. The JWT itself is
-    stateless and expires automatically after 7 days; this call simply
-    ensures it cannot be reused from this machine before expiry.
+    Removes the JWT from session state (hosted mode) and from disk (stdio mode).
+    The JWT itself is stateless and expires automatically after 7 days.
     """
-    delete_token()
-    return {"ok": True, "message": "Session revoked. Local credentials removed."}
+    await clear_token(ctx)
+    return {"ok": True, "message": "Session revoked. Credentials removed."}
 
 
 @mcp.tool()
-def nsu_current_user() -> dict:
+async def nsu_current_user(ctx: Context) -> dict:
     """Return the profile of the currently authenticated NSU Audit API user.
 
     Returns user_id, email, display_name, and is_admin flag from the
     active OAuth session. Raises an error if no session exists or it
     has expired — call ``nsu_oauth_start`` to create a new one.
     """
-    return api_get("/api/auth/me")
+    token = await get_token_or_raise(ctx)
+    return await asyncio.to_thread(api_get, "/api/auth/me", token)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -277,7 +307,8 @@ def nsu_current_user() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def discover_choices(
+async def discover_choices(
+    ctx: Context,
     transcript_path: str,
     program: str,
     answers: Optional[dict] = None,
@@ -308,13 +339,17 @@ def discover_choices(
         program:         Degree program — ``'CSE'`` or ``'MIC'``.
         answers:         Optional partial answers dict from a previous call.
     """
-    p    = _validate_transcript_path(transcript_path)
-    prog = _validate_program(program)
-    return _upload_transcript(p, prog, answers or {}, save=False)
+    token = await get_token_or_raise(ctx)
+    p     = _validate_transcript_path(transcript_path)
+    prog  = _validate_program(program)
+    return await asyncio.to_thread(
+        _upload_transcript, p, prog, answers or {}, False, token
+    )
 
 
 @mcp.tool()
-def run_audit(
+async def run_audit(
+    ctx: Context,
     transcript_path: str,
     program: str,
     answers: Optional[dict] = None,
@@ -346,20 +381,24 @@ def run_audit(
         answers:         Pre-supplied choices dict (keys: pick_0, yn_0, ...).
         save:            Persist the run to the database (default True).
     """
-    p    = _validate_transcript_path(transcript_path)
-    prog = _validate_program(program)
-    return _upload_transcript(p, prog, answers or {}, save=save)
+    token = await get_token_or_raise(ctx)
+    p     = _validate_transcript_path(transcript_path)
+    prog  = _validate_program(program)
+    return await asyncio.to_thread(
+        _upload_transcript, p, prog, answers or {}, save, token
+    )
 
 
 @mcp.tool()
-def get_audit_run(run_id: str) -> dict:
+async def get_audit_run(ctx: Context, run_id: str) -> dict:
     """Retrieve the full result and answers for a previously saved audit run.
 
     Args:
         run_id: UUID of the audit run (from the ``run_audit`` response).
     """
-    rid = _validate_run_id(run_id)
-    return api_get(f"/api/audit/{rid}")
+    token = await get_token_or_raise(ctx)
+    rid   = _validate_run_id(run_id)
+    return await asyncio.to_thread(api_get, f"/api/audit/{rid}", token)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -367,7 +406,11 @@ def get_audit_run(run_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def list_audit_history(limit: int = 20, offset: int = 0) -> dict:
+async def list_audit_history(
+    ctx: Context,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
     """List the authenticated user's past audit runs, most recent first.
 
     Returns a lightweight summary per run (cgpa, credit_completed, program,
@@ -381,22 +424,26 @@ def list_audit_history(limit: int = 20, offset: int = 0) -> dict:
         raise ValueError("limit must be between 1 and 100.")
     if offset < 0:
         raise ValueError("offset must be non-negative.")
-    return api_get(f"/api/history/?limit={limit}&offset={offset}")
+    token = await get_token_or_raise(ctx)
+    return await asyncio.to_thread(
+        api_get, f"/api/history/?limit={limit}&offset={offset}", token
+    )
 
 
 @mcp.tool()
-def get_history_run(run_id: str) -> dict:
+async def get_history_run(ctx: Context, run_id: str) -> dict:
     """Get the full result and stored answers for a specific past audit run.
 
     Args:
         run_id: UUID of the audit run.
     """
-    rid = _validate_run_id(run_id)
-    return api_get(f"/api/history/{rid}")
+    token = await get_token_or_raise(ctx)
+    rid   = _validate_run_id(run_id)
+    return await asyncio.to_thread(api_get, f"/api/history/{rid}", token)
 
 
 @mcp.tool()
-def delete_audit_run(run_id: str) -> dict:
+async def delete_audit_run(ctx: Context, run_id: str) -> dict:
     """Permanently delete a past audit run from the database.
 
     This action is irreversible.  Only the owner of the run can delete it.
@@ -404,8 +451,9 @@ def delete_audit_run(run_id: str) -> dict:
     Args:
         run_id: UUID of the audit run to delete.
     """
-    rid = _validate_run_id(run_id)
-    return api_delete(f"/api/history/{rid}")
+    token = await get_token_or_raise(ctx)
+    rid   = _validate_run_id(run_id)
+    return await asyncio.to_thread(api_delete, f"/api/history/{rid}", token)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -422,14 +470,13 @@ def lookup_course(course_code: str) -> dict:
         course_code: NSU course code, e.g. ``'CSE115'``, ``'MAT250'``, ``'ENG102'``.
     """
     code = course_code.strip().upper()
-    # Validate format: 2–4 uppercase letters + 3 digits + optional 1 letter.
     if not re.fullmatch(r"[A-Z]{2,4}[0-9]{3}[A-Z]?", code):
         raise ValueError(
             f"Invalid course code format: {course_code!r}. "
             "Expected format: 2–4 letters + 3 digits (e.g. CSE115, MAT130)."
         )
-    catalog     = _load_catalog()
-    in_catalog  = code in catalog
+    catalog    = _load_catalog()
+    in_catalog = code in catalog
     return {
         "course_code":    code,
         "in_nsu_catalog": in_catalog,
@@ -563,7 +610,7 @@ def list_program_requirements(program: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def get_admin_stats() -> dict:
+async def get_admin_stats(ctx: Context) -> dict:
     """Return platform-wide aggregate statistics. Requires admin access.
 
     Includes:
@@ -574,7 +621,8 @@ def get_admin_stats() -> dict:
 
     Raises a 403 error if the authenticated user is not an admin.
     """
-    return api_get("/api/admin/stats")
+    token = await get_token_or_raise(ctx)
+    return await asyncio.to_thread(api_get, "/api/admin/stats", token)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -582,7 +630,7 @@ def get_admin_stats() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def gdrive_authorize() -> dict:
+async def gdrive_authorize(ctx: Context) -> dict:
     """Start Google Drive read-only authorization (device flow).
 
     The backend handles all OAuth credentials — they never reach this client.
@@ -595,7 +643,8 @@ def gdrive_authorize() -> dict:
 
     Access is strictly read-only (``drive.readonly`` scope).
     """
-    result = start_gdrive_flow()
+    token  = await get_token_or_raise(ctx)
+    result = await asyncio.to_thread(start_gdrive_flow, token)
     return {
         **result,
         "scope": "drive.readonly — read access only, no modifications",
@@ -607,7 +656,7 @@ def gdrive_authorize() -> dict:
 
 
 @mcp.tool()
-def gdrive_authorize_complete(device_code: str) -> dict:
+async def gdrive_authorize_complete(ctx: Context, device_code: str) -> dict:
     """Finish Google Drive authorization after browser approval.
 
     Args:
@@ -616,7 +665,8 @@ def gdrive_authorize_complete(device_code: str) -> dict:
     Call after entering the code and approving access in the browser.
     The backend polls Google and stores the token server-side.
     """
-    complete_gdrive_flow(device_code)
+    token = await get_token_or_raise(ctx)
+    await asyncio.to_thread(complete_gdrive_flow, token, device_code)
     return {
         "ok":      True,
         "message": "Google Drive read-only access authorized successfully.",
@@ -624,7 +674,11 @@ def gdrive_authorize_complete(device_code: str) -> dict:
 
 
 @mcp.tool()
-def gdrive_list_files(search: str = "", page_size: int = 20) -> list:
+async def gdrive_list_files(
+    ctx: Context,
+    search: str = "",
+    page_size: int = 20,
+) -> list:
     """List PDF and image files in the user's Google Drive.
 
     Without a ``search`` term, returns PDFs and images ordered by most
@@ -640,11 +694,15 @@ def gdrive_list_files(search: str = "", page_size: int = 20) -> list:
     """
     if not 1 <= page_size <= 100:
         raise ValueError("page_size must be between 1 and 100.")
-    return _gdrive_list_files(query=search, page_size=page_size)
+    token = await get_token_or_raise(ctx)
+    return await asyncio.to_thread(
+        _gdrive_list_files, token, search, page_size
+    )
 
 
 @mcp.tool()
-def gdrive_download_and_audit(
+async def gdrive_download_and_audit(
+    ctx: Context,
     file_id: str,
     program: str,
     answers: Optional[dict] = None,
@@ -656,8 +714,7 @@ def gdrive_download_and_audit(
     The file is downloaded to a secure temporary path, submitted to the
     backend, and the temp file is deleted immediately after.
 
-    Requires both NSU Audit login (``login`` / ``login_complete``) and
-    Google Drive authorization (``gdrive_authorize`` / ``gdrive_authorize_complete``).
+    Requires both NSU Audit login and Google Drive authorization.
 
     Args:
         file_id: Google Drive file ID (from ``gdrive_list_files``).
@@ -665,30 +722,32 @@ def gdrive_download_and_audit(
         answers: Pre-supplied choices dict (see ``discover_choices``).
         save:    Persist the run to the database (default True).
     """
-    prog = _validate_program(program)
+    token = await get_token_or_raise(ctx)
+    prog  = _validate_program(program)
 
-    # Download from Drive (validates file ID, MIME type, and size).
-    file_bytes, filename = gdrive_download_file(file_id)
+    file_bytes, filename = await asyncio.to_thread(
+        gdrive_download_file, token, file_id
+    )
 
     ext = Path(filename).suffix.lower()
     if not ext:
-        ext = ".pdf"   # default if Drive filename has no extension
+        ext = ".pdf"
     if ext not in _ALLOWED_EXTS:
         raise ValueError(
             f"Unsupported file extension '{ext}' from Google Drive. "
             f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
         )
 
-    # Write to a secure temp file (mkstemp avoids race conditions), upload, then delete.
     fd, tmp_str = tempfile.mkstemp(suffix=ext)
     os.close(fd)
     tmp = Path(tmp_str)
     try:
         tmp.write_bytes(file_bytes)
-        # Use only the basename of the Drive filename to prevent path traversal.
         safe_name = Path(filename).name or f"transcript{ext}"
         tmp = tmp.rename(tmp.parent / safe_name)
-        return _upload_transcript(tmp, prog, answers or {}, save=save)
+        return await asyncio.to_thread(
+            _upload_transcript, tmp, prog, answers or {}, save, token
+        )
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -698,7 +757,7 @@ def gdrive_download_and_audit(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-def gmail_authorize() -> dict:
+async def gmail_authorize(ctx: Context) -> dict:
     """Start Gmail send-only authorization (device flow).
 
     The backend handles all OAuth credentials — they never reach this client.
@@ -712,7 +771,8 @@ def gmail_authorize() -> dict:
 
     Only the ``gmail.send`` scope is requested — inbox is never read.
     """
-    result = start_gmail_flow()
+    token  = await get_token_or_raise(ctx)
+    result = await asyncio.to_thread(start_gmail_flow, token)
     return {
         **result,
         "scope": "gmail.send — outbound email only, inbox is never read",
@@ -724,7 +784,7 @@ def gmail_authorize() -> dict:
 
 
 @mcp.tool()
-def gmail_authorize_complete(device_code: str) -> dict:
+async def gmail_authorize_complete(ctx: Context, device_code: str) -> dict:
     """Finish Gmail authorization after browser approval.
 
     Args:
@@ -732,7 +792,8 @@ def gmail_authorize_complete(device_code: str) -> dict:
 
     The backend polls Google and stores the token server-side.
     """
-    complete_gmail_flow(device_code)
+    token = await get_token_or_raise(ctx)
+    await asyncio.to_thread(complete_gmail_flow, token, device_code)
     return {
         "ok":      True,
         "message": "Gmail send-only access authorized successfully.",
@@ -740,7 +801,8 @@ def gmail_authorize_complete(device_code: str) -> dict:
 
 
 @mcp.tool()
-def send_audit_report(
+async def send_audit_report(
+    ctx: Context,
     run_id: str,
     to: str,
     subject: Optional[str] = None,
@@ -760,8 +822,11 @@ def send_audit_report(
         to:      Recipient email address (e.g. ``'advisor@northsouth.edu'``).
         subject: Optional custom subject line.
     """
-    rid = _validate_run_id(run_id)
-    return send_report_via_backend(rid, to, subject)
+    token = await get_token_or_raise(ctx)
+    rid   = _validate_run_id(run_id)
+    return await asyncio.to_thread(
+        send_report_via_backend, token, rid, to, subject
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

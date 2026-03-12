@@ -1,18 +1,25 @@
 """Credential storage for the NSU Audit MCP server.
 
-Tokens are stored at ~/.config/nsu-audit-mcp/credentials.json with mode 0600.
-The device flow state (pending authorization) is stored at
-~/.config/nsu-audit-mcp/pending_device.json with the same permissions.
+Stdio mode  : tokens are persisted to ~/.config/nsu-audit-mcp/credentials.json
+              (mode 0600) so they survive across sessions.
+Hosted mode : tokens are stored in FastMCP session state (ctx.set_state), which
+              is isolated per connected client.  Disk writes still happen as a
+              secondary fallback so stdio mode continues to work unchanged.
 """
+from __future__ import annotations
+
 import base64
 import json
 import os
 import stat
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import httpx
+
+if TYPE_CHECKING:
+    from fastmcp import Context
 
 _CREDS_DIR    = Path.home() / ".config" / "nsu-audit-mcp"
 _CREDS_FILE   = _CREDS_DIR / "credentials.json"
@@ -83,21 +90,20 @@ def delete_token() -> None:
 
 # ── Device flow state ─────────────────────────────────────────────────────────
 
-def save_pending_device(data: dict) -> None:
-    """Persist the in-progress device flow state with 0600 permissions.
-
-    Stores only the fields needed for polling (device_code, client credentials,
-    interval, and computed expiry timestamp).  The raw client_secret received
-    from the backend is stored here — this mirrors the existing CLI behaviour.
-    """
-    payload = {
+def _build_pending_payload(data: dict) -> dict:
+    """Normalise a raw device-flow response into the fields needed for polling."""
+    return {
         "device_code":   data["device_code"],
         "client_id":     data["client_id"],
         "client_secret": data.get("client_secret", ""),
         "interval":      int(data.get("interval", 5)),
         "expires_at":    time.time() + int(data.get("expires_in", 1800)),
     }
-    _write_secure(_PENDING_FILE, payload)
+
+
+def save_pending_device(data: dict) -> None:
+    """Persist the in-progress device flow state with 0600 permissions."""
+    _write_secure(_PENDING_FILE, _build_pending_payload(data))
 
 
 def load_pending_device() -> Optional[dict]:
@@ -114,24 +120,71 @@ def clear_pending_device() -> None:
         _PENDING_FILE.unlink()
 
 
+# ── Async session-state helpers (hosted + stdio) ──────────────────────────────
+# These use FastMCP session state as the primary store so that each connected
+# client in hosted HTTP/SSE mode has fully isolated credentials.
+# They also write to disk as a secondary store so that stdio mode retains
+# credentials across process restarts.
+
+async def get_token(ctx: "Context") -> Optional[str]:
+    """Return the JWT: session state first, then disk fallback."""
+    try:
+        token = await ctx.get_state("nsu_jwt")
+        if token:
+            return token
+    except Exception:
+        pass
+    return load_token()
+
+
+async def store_token(ctx: "Context", access_token: str) -> None:
+    """Store the JWT in session state and on disk."""
+    await ctx.set_state("nsu_jwt", access_token)
+    save_token(access_token)
+
+
+async def clear_token(ctx: "Context") -> None:
+    """Remove the JWT from session state and disk."""
+    await ctx.set_state("nsu_jwt", None)
+    delete_token()
+
+
+async def get_pending(ctx: "Context") -> Optional[dict]:
+    """Return pending device state: session state first, then disk fallback."""
+    try:
+        data = await ctx.get_state("nsu_pending_device")
+        if data:
+            return data
+    except Exception:
+        pass
+    return load_pending_device()
+
+
+async def store_pending(ctx: "Context", data: dict) -> None:
+    """Store pending device state in session state and on disk."""
+    payload = _build_pending_payload(data)
+    await ctx.set_state("nsu_pending_device", payload)
+    _write_secure(_PENDING_FILE, payload)
+
+
+async def clear_pending(ctx: "Context") -> None:
+    """Clear pending device state from session state and disk."""
+    await ctx.set_state("nsu_pending_device", None)
+    clear_pending_device()
+
+
 # ── Device token polling ──────────────────────────────────────────────────────
 
-def poll_device_token(api_base_url: str) -> str:
-    """Poll Google for the device token, then exchange with the backend for an API JWT.
+def poll_with_pending(api_base_url: str, pending: dict) -> str:
+    """Poll Google for the device token using the provided pending state dict.
 
-    Polls up to _MAX_POLL_ATTEMPTS times (each attempt waits `interval` seconds).
-    Returns the API JWT string on success.
-    Raises RuntimeError if the user has not yet authorized, or if the flow expired.
-    Callers should surface the error message and ask the user to call login_complete again.
+    Does not read from or write to disk — callers are responsible for state
+    persistence.  Polls up to _MAX_POLL_ATTEMPTS × interval seconds.
+    Returns the NSU Audit API JWT on success.
     """
-    pending = load_pending_device()
-    if not pending:
-        raise RuntimeError("No pending login found. Call the `login` tool first.")
-
     if time.time() > pending["expires_at"]:
-        clear_pending_device()
         raise RuntimeError(
-            "Login session expired. Call `login` again to start a new flow."
+            "Login session expired. Call `nsu_oauth_start` again to start a new flow."
         )
 
     device_code   = pending["device_code"]
@@ -160,7 +213,6 @@ def poll_device_token(api_base_url: str) -> str:
                     "Google did not return an id_token. The account may not be "
                     "a valid @northsouth.edu address."
                 )
-            # Exchange the Google id_token for the backend API JWT.
             base = api_base_url.rstrip("/")
             with httpx.Client(timeout=15) as exc_client:
                 resp = exc_client.post(
@@ -168,29 +220,41 @@ def poll_device_token(api_base_url: str) -> str:
                     json={"id_token": id_token},
                 )
             if resp.status_code == 403:
-                clear_pending_device()
                 raise RuntimeError(
                     "Access denied: only @northsouth.edu accounts are allowed."
                 )
             if resp.status_code != 200:
-                clear_pending_device()
                 raise RuntimeError(
                     f"Backend token exchange failed ({resp.status_code}): {resp.text}"
                 )
-            access_token = resp.json()["access_token"]
-            save_token(access_token)
-            clear_pending_device()
-            return access_token
+            return resp.json()["access_token"]
 
         err = (poll.json() or {}).get("error", "")
         if err == "slow_down":
             interval += 5
         elif err not in ("authorization_pending",):
-            clear_pending_device()
             raise RuntimeError(f"Google authorization error: {err}")
 
     raise RuntimeError(
         "Still waiting for browser authorization. "
         "Make sure you have entered the code at the verification URL and "
-        "approved access, then call `login_complete` again."
+        "approved access, then call `nsu_oauth_complete` again."
     )
+
+
+def poll_device_token(api_base_url: str) -> str:
+    """Legacy helper — reads pending state from disk then delegates to poll_with_pending.
+
+    Kept for backward compatibility with the CLI.
+    """
+    pending = load_pending_device()
+    if not pending:
+        raise RuntimeError("No pending login found. Call the `login` tool first.")
+    try:
+        access_token = poll_with_pending(api_base_url, pending)
+        save_token(access_token)
+        clear_pending_device()
+        return access_token
+    except RuntimeError:
+        clear_pending_device()
+        raise
