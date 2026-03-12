@@ -7,7 +7,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .database import Base, engine
-from .routers import admin, audit, auth, history
+from . import models  # noqa: F401 — ensures all ORM models are registered
+from .routers import admin, audit, auth, gdrive, gmail, history
 
 
 @asynccontextmanager
@@ -55,6 +56,8 @@ app.include_router(auth.router)
 app.include_router(audit.router)
 app.include_router(history.router)
 app.include_router(admin.router)
+app.include_router(gdrive.router)
+app.include_router(gmail.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

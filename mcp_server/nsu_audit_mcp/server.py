@@ -5,9 +5,7 @@ so AI assistants (opencode, Claude Desktop, etc.) can run graduation eligibility
 audits on behalf of students and faculty.
 
 Configuration — environment variables:
-  NSU_AUDIT_BASE_URL   Backend base URL            (default: http://localhost:8000)
-  GDRIVE_CLIENT_ID     Google Cloud OAuth client ID for Drive access (optional)
-  GDRIVE_CLIENT_SECRET Google Cloud OAuth client secret for Drive access (optional)
+  NSU_AUDIT_BASE_URL   Backend base URL  (default: http://localhost:8000)
 
 Typical workflow:
   1. login / login_complete          — authenticate with @northsouth.edu account
@@ -44,6 +42,11 @@ from ._gdrive import (
     gdrive_list_files as _gdrive_list_files,
     start_gdrive_flow,
 )
+from ._gmail import (
+    complete_gmail_flow,
+    send_report_via_backend,
+    start_gmail_flow,
+)
 
 # ── MCP application ───────────────────────────────────────────────────────────
 
@@ -61,7 +64,9 @@ mcp = FastMCP(
         "  gdrive_authorize → gdrive_authorize_complete → gdrive_list_files "
         "→ gdrive_download_and_audit\n\n"
         "Catalog / requirements queries (no session needed):\n"
-        "  lookup_course, list_program_requirements"
+        "  lookup_course, list_program_requirements\n\n"
+        "Gmail report tools (requires gmail_authorize first):\n"
+        "  gmail_authorize → gmail_authorize_complete → send_audit_report"
     ),
 )
 
@@ -580,15 +585,13 @@ def get_admin_stats() -> dict:
 def gdrive_authorize() -> dict:
     """Start Google Drive read-only authorization (device flow).
 
-    Requires ``GDRIVE_CLIENT_ID`` and ``GDRIVE_CLIENT_SECRET`` environment
-    variables from a Google Cloud project with the Drive API enabled
-    (OAuth client type: Desktop app).
+    The backend handles all OAuth credentials — they never reach this client.
 
     Returns a ``user_code`` and ``verification_url``:
       1. Open ``verification_url`` in a browser.
       2. Enter ``user_code`` when prompted.
       3. Approve read-only Drive access.
-    Then call ``gdrive_authorize_complete``.
+    Then call ``gdrive_authorize_complete`` with the returned ``device_code``.
 
     Access is strictly read-only (``drive.readonly`` scope).
     """
@@ -598,19 +601,22 @@ def gdrive_authorize() -> dict:
         "scope": "drive.readonly — read access only, no modifications",
         "next_step": (
             "Open the verification_url in a browser, enter the user_code, "
-            "approve access, then call `gdrive_authorize_complete`."
+            "approve access, then call `gdrive_authorize_complete` passing the device_code returned here."
         ),
     }
 
 
 @mcp.tool()
-def gdrive_authorize_complete() -> dict:
+def gdrive_authorize_complete(device_code: str) -> dict:
     """Finish Google Drive authorization after browser approval.
 
+    Args:
+        device_code: The ``device_code`` returned by ``gdrive_authorize``.
+
     Call after entering the code and approving access in the browser.
-    Polls for up to 60 seconds.  If it times out, call this tool again.
+    The backend polls Google and stores the token server-side.
     """
-    complete_gdrive_flow()
+    complete_gdrive_flow(device_code)
     return {
         "ok":      True,
         "message": "Google Drive read-only access authorized successfully.",
@@ -685,6 +691,77 @@ def gdrive_download_and_audit(
         return _upload_transcript(tmp, prog, answers or {}, save=save)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GMAIL TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def gmail_authorize() -> dict:
+    """Start Gmail send-only authorization (device flow).
+
+    The backend handles all OAuth credentials — they never reach this client.
+    The Google Cloud project must have the Gmail API enabled.
+
+    Returns a ``user_code`` and ``verification_url``:
+      1. Open ``verification_url`` in a browser.
+      2. Enter ``user_code`` when prompted.
+      3. Approve send-only Gmail access.
+    Then call ``gmail_authorize_complete`` with the returned ``device_code``.
+
+    Only the ``gmail.send`` scope is requested — inbox is never read.
+    """
+    result = start_gmail_flow()
+    return {
+        **result,
+        "scope": "gmail.send — outbound email only, inbox is never read",
+        "next_step": (
+            "Open the verification_url in a browser, enter the user_code, "
+            "approve access, then call `gmail_authorize_complete` passing the device_code returned here."
+        ),
+    }
+
+
+@mcp.tool()
+def gmail_authorize_complete(device_code: str) -> dict:
+    """Finish Gmail authorization after browser approval.
+
+    Args:
+        device_code: The ``device_code`` returned by ``gmail_authorize``.
+
+    The backend polls Google and stores the token server-side.
+    """
+    complete_gmail_flow(device_code)
+    return {
+        "ok":      True,
+        "message": "Gmail send-only access authorized successfully.",
+    }
+
+
+@mcp.tool()
+def send_audit_report(
+    run_id: str,
+    to: str,
+    subject: Optional[str] = None,
+) -> dict:
+    """Send an audit result as an Excel report via Gmail.
+
+    The backend fetches the saved audit run, builds a multi-sheet .xlsx
+    workbook (Summary, Course Grades, Missing Courses, Prereq Failures), and
+    emails it to the recipient with a plain-text summary in the message body.
+
+    Requires:
+      - NSU Audit login  (``nsu_oauth_start`` / ``nsu_oauth_complete``)
+      - Gmail authorization (``gmail_authorize`` / ``gmail_authorize_complete``)
+
+    Args:
+        run_id:  UUID of the saved audit run (from ``run_audit`` response).
+        to:      Recipient email address (e.g. ``'advisor@northsouth.edu'``).
+        subject: Optional custom subject line.
+    """
+    rid = _validate_run_id(run_id)
+    return send_report_via_backend(rid, to, subject)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

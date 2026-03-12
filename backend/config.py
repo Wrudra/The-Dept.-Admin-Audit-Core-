@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────────────────────
     database_url: str         # postgresql://user:pass@host:5432/dbname
 
+    # ── Google Drive + Gmail (Desktop-app OAuth — server-side only) ────────
+    gdrive_client_id:     str = ""
+    gdrive_client_secret: str = ""
+
     # ── App ──────────────────────────────────────────────────────────────────
     app_env:              str = "development"
     backend_url:          str = "http://localhost:8000"
