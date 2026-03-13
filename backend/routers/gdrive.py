@@ -1,20 +1,29 @@
-"""Google Drive router — server-side device flow + file access.
+"""Google Drive router — OAuth 2.0 Authorization Code flow + file access.
+
+The device authorization flow is NOT used here because Google does not permit
+``drive.readonly`` (or any Drive scope) in that flow — only YouTube/TV scopes
+are allowed.  We use the standard Authorization Code flow instead:
+
+  1. GET  /api/gdrive/authorize/start     — returns ``auth_url`` the user opens
+  2. GET  /api/gdrive/authorize/callback  — Google redirects here; token stored
+  3. GET  /api/gdrive/authorize/status    — poll to confirm authorization
+  4. POST /api/gdrive/authorize/revoke    — delete stored Drive token
+
+Works with Desktop-type OAuth 2.0 clients.  Google automatically accepts any
+``http://localhost`` redirect URI for Desktop clients — no Cloud Console
+registration needed for localhost.
 
 Credentials (GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET) live only on the server.
-Users never see or need them; they just approve access in their own browser.
-
-Per-user Drive tokens are stored as encrypted JSON in the drive_tokens table.
-Access is strictly read-only (drive.readonly scope).
 """
-import json
 import re
+import secrets
 import time
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,11 +36,10 @@ router = APIRouter(prefix="/api/gdrive", tags=["gdrive"])
 
 # ── Google API constants ──────────────────────────────────────────────────────
 
-_GOOGLE_DEVICE_URL = "https://oauth2.googleapis.com/device/code"
-_GOOGLE_TOKEN_URL  = "https://oauth2.googleapis.com/token"
-_DRIVE_API_BASE    = "https://www.googleapis.com/drive/v3"
-_DEVICE_GRANT      = "urn:ietf:params:oauth:grant-type:device_code"
-_DRIVE_SCOPE       = "https://www.googleapis.com/auth/drive.readonly"
+_GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_DRIVE_API_BASE   = "https://www.googleapis.com/drive/v3"
+_DRIVE_SCOPE      = "https://www.googleapis.com/auth/drive.readonly"
 
 _MAX_FILE_BYTES    = 10 * 1024 * 1024   # 10 MB
 _ALLOWED_MIME_TYPES = {
@@ -39,10 +47,32 @@ _ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/jpg", "image/png", "image/tiff", "image/bmp",
     "text/csv", "text/plain",
 }
-# Drive file IDs are URL-safe base64 characters.
 _FILE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
-_MAX_POLL_ATTEMPTS = 20   # 20 × 5 s = up to 100 s
+# ── In-memory pending-state store {state → {user_id, exp}} ───────────────────
+# Fine for a single-worker dev deployment.
+
+_PENDING: dict[str, dict] = {}
+_STATE_TTL = 600  # 10 minutes
+
+
+def _redirect_uri() -> str:
+    return f"{settings.backend_url}/api/gdrive/authorize/callback"
+
+
+def _put_state(state: str, user_id: str) -> None:
+    now = time.time()
+    expired = [k for k, v in _PENDING.items() if now > v["exp"]]
+    for k in expired:
+        del _PENDING[k]
+    _PENDING[state] = {"user_id": user_id, "exp": now + _STATE_TTL}
+
+
+def _pop_state(state: str) -> Optional[str]:
+    entry = _PENDING.pop(state, None)
+    if not entry or time.time() > entry["exp"]:
+        return None
+    return entry["user_id"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -52,29 +82,25 @@ def _require_credentials() -> tuple[str, str]:
     sec = settings.gdrive_client_secret.strip()
     if not cid or not sec:
         raise HTTPException(
-            status_code=503,
-            detail=(
-                "Google Drive integration is not configured on this server. "
-                "Contact the administrator."
-            ),
+            503,
+            "Google Drive integration is not configured. "
+            "Set GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET in the server environment.",
         )
     return cid, sec
 
 
 async def _get_token(db: AsyncSession, user_id: str) -> Optional[str]:
-    """Return a valid Drive access token for the user, refreshing if needed."""
+    """Return a valid Drive access token, refreshing silently if needed."""
     result = await db.execute(
         select(DriveToken).where(DriveToken.user_id == user_id)
     )
     row = result.scalar_one_or_none()
-    if not row:
+    if not row or not row.access_token:
         return None
 
-    # Still valid (with 60-second buffer)
     if time.time() < row.expires_at - 60:
         return row.access_token
 
-    # Attempt silent refresh
     if not row.refresh_token:
         return None
 
@@ -99,101 +125,129 @@ async def _get_token(db: AsyncSession, user_id: str) -> Optional[str]:
     return row.access_token
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Auth endpoints ────────────────────────────────────────────────────────────
 
-@router.post("/authorize/start", summary="Start Google Drive device flow")
+@router.get("/authorize/start", summary="Start Google Drive OAuth authorization")
 async def gdrive_authorize_start(
     claims: dict = Depends(get_current_claims),
 ) -> dict:
-    """Start the Device Authorization flow for Google Drive read-only access.
+    """Generate a Google OAuth 2.0 URL for Drive read-only access.
 
-    Returns ``user_code`` and ``verification_url``.  The user opens the URL
-    in their browser, enters the code, and approves read-only Drive access.
-    Then call ``/api/gdrive/authorize/complete``.
-
-    OAuth credentials never leave the server.
+    Returns ``auth_url``.  Open it in a browser and approve access.
+    Google will redirect to the backend callback automatically — no further
+    action needed beyond approval.  Poll ``/authorize/status`` to confirm.
     """
     cid, _ = _require_credentials()
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            _GOOGLE_DEVICE_URL,
-            data={"client_id": cid, "scope": _DRIVE_SCOPE},
-        )
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Failed to start Drive authorization: {resp.text}")
+    state = secrets.token_urlsafe(32)
+    _put_state(state, claims["user_id"])
 
-    data = resp.json()
-    # Store device_code temporarily in the response — client echoes it back.
+    auth_url = _GOOGLE_AUTH_URL + "?" + urlencode({
+        "client_id":     cid,
+        "redirect_uri":  _redirect_uri(),
+        "response_type": "code",
+        "scope":         _DRIVE_SCOPE,
+        "state":         state,
+        "access_type":   "offline",
+        "prompt":        "consent",
+    })
+
     return {
-        "user_code":        data["user_code"],
-        "verification_url": data["verification_url"],
-        "device_code":      data["device_code"],
-        "interval":         data.get("interval", 5),
-        "expires_in":       data.get("expires_in", 1800),
-        "scope":            "drive.readonly — read-only access, no modifications",
+        "auth_url": auth_url,
+        "scope":    "drive.readonly — read-only, no modifications",
+        "next_step": (
+            "Open auth_url in a browser and approve Google Drive read-only access. "
+            "The backend stores the token automatically via the OAuth callback. "
+            "Then call gdrive_authorize_complete to confirm."
+        ),
     }
 
 
-class CompleteRequest(BaseModel):
-    device_code: str
+@router.get("/authorize/callback", summary="OAuth callback — Google redirects here")
+async def gdrive_authorize_callback(
+    code:  str = Query(...),
+    state: str = Query(...),
+    db:    AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Receive the authorization code from Google and exchange it for tokens.
+
+    Called automatically by Google after the user approves Drive access.
+    """
+    user_id = _pop_state(state)
+    if not user_id:
+        return HTMLResponse(
+            "<h2 style='font-family:sans-serif;color:#c00'>Authorization failed</h2>"
+            "<p style='font-family:sans-serif'>Invalid or expired state. "
+            "Please start the authorization again.</p>",
+            status_code=400,
+        )
+
+    cid, sec = _require_credentials()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            _GOOGLE_TOKEN_URL,
+            data={
+                "grant_type":   "authorization_code",
+                "code":          code,
+                "redirect_uri":  _redirect_uri(),
+                "client_id":     cid,
+                "client_secret": sec,
+            },
+        )
+
+    if resp.status_code != 200:
+        return HTMLResponse(
+            f"<h2 style='font-family:sans-serif;color:#c00'>Authorization failed</h2>"
+            f"<p style='font-family:sans-serif'>{resp.text}</p>",
+            status_code=502,
+        )
+
+    tok = resp.json()
+    result = await db.execute(
+        select(DriveToken).where(DriveToken.user_id == user_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = DriveToken(user_id=user_id)
+        db.add(row)
+    row.access_token  = tok["access_token"]
+    row.refresh_token = tok.get("refresh_token") or row.refresh_token
+    row.expires_at    = time.time() + tok.get("expires_in", 3600)
+    await db.commit()
+
+    return HTMLResponse(
+        "<h2 style='font-family:sans-serif;color:#1a7a1a'>Google Drive authorized ✓</h2>"
+        "<p style='font-family:sans-serif'>"
+        "Read-only access granted. You can close this tab.</p>"
+    )
 
 
-@router.post("/authorize/complete", summary="Complete Google Drive device flow")
-async def gdrive_authorize_complete(
-    body:   CompleteRequest,
+@router.get("/authorize/status", summary="Check Drive authorization status")
+async def gdrive_authorize_status(
     claims: dict         = Depends(get_current_claims),
     db:     AsyncSession = Depends(get_db),
 ) -> dict:
-    """Poll Google for the Drive access token after the user approved in browser.
+    """Return whether the current user has a valid Drive token stored."""
+    token = await _get_token(db, claims["user_id"])
+    return {"authorized": token is not None}
 
-    Call this after ``/api/gdrive/authorize/start``.  Pass the ``device_code``
-    returned by start.  Polls up to 100 seconds; if pending, call again.
-    """
-    cid, sec = _require_credentials()
-    user_id  = claims["user_id"]
 
-    for _ in range(_MAX_POLL_ATTEMPTS):
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                _GOOGLE_TOKEN_URL,
-                data={
-                    "grant_type":  _DEVICE_GRANT,
-                    "device_code": body.device_code,
-                    "client_id":   cid,
-                    "client_secret": sec,
-                },
-            )
-        if resp.status_code == 200:
-            tok = resp.json()
-            # Upsert DriveToken row for this user
-            result = await db.execute(
-                select(DriveToken).where(DriveToken.user_id == user_id)
-            )
-            row = result.scalar_one_or_none()
-            if row is None:
-                row = DriveToken(user_id=user_id)
-                db.add(row)
-            row.access_token  = tok["access_token"]
-            row.refresh_token = tok.get("refresh_token", "")
-            row.expires_at    = time.time() + tok.get("expires_in", 3600)
-            await db.commit()
-            return {"ok": True, "message": "Google Drive read-only access granted."}
-
-        err = resp.json().get("error", "")
-        if err == "authorization_pending":
-            await _async_sleep(5)
-            continue
-        if err == "slow_down":
-            await _async_sleep(10)
-            continue
-        raise HTTPException(400, f"Drive authorization failed: {err}")
-
-    raise HTTPException(
-        408,
-        "Timed out waiting for Drive authorization. "
-        "Approve in the browser first, then call this endpoint again.",
+@router.post("/authorize/revoke", summary="Revoke Drive authorization")
+async def gdrive_authorize_revoke(
+    claims: dict         = Depends(get_current_claims),
+    db:     AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete the stored Drive token for the current user."""
+    result = await db.execute(
+        select(DriveToken).where(DriveToken.user_id == claims["user_id"])
     )
+    row = result.scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return {"ok": True, "message": "Drive authorization revoked."}
 
+
+# ── File endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/files", summary="List Drive transcript files")
 async def gdrive_list_files(
@@ -204,8 +258,7 @@ async def gdrive_list_files(
 ) -> list:
     """List PDF and image files in the user's Google Drive.
 
-    Requires prior ``/api/gdrive/authorize/start`` + ``complete`` flow.
-    Results ordered by most recently modified.
+    Requires prior Drive authorization.  Results ordered by most recently modified.
     """
     user_id = claims["user_id"]
     token   = await _get_token(db, user_id)
@@ -248,10 +301,9 @@ async def gdrive_download_file(
     claims:  dict         = Depends(get_current_claims),
     db:      AsyncSession = Depends(get_db),
 ) -> Response:
-    """Download a file from Google Drive and return it as raw bytes.
+    """Download a file from Google Drive and return raw bytes.
 
     Validates file ID format, MIME type, and size (max 10 MB).
-    The MCP or backend audit endpoint calls this to retrieve the transcript.
     """
     if not _FILE_ID_RE.match(file_id):
         raise HTTPException(400, "Invalid Drive file ID format.")
@@ -261,7 +313,6 @@ async def gdrive_download_file(
     if not token:
         raise HTTPException(401, "Drive not authorized.")
 
-    # Get file metadata first
     async with httpx.AsyncClient(timeout=15) as client:
         meta = await client.get(
             f"{_DRIVE_API_BASE}/files/{file_id}",
@@ -282,7 +333,7 @@ async def gdrive_download_file(
         raise HTTPException(
             415,
             f"Unsupported file type '{mime_type}'. "
-            f"Accepted: PDF, CSV, JPEG, PNG, TIFF, BMP.",
+            "Accepted: PDF, CSV, JPEG, PNG, TIFF, BMP.",
         )
     if file_size > _MAX_FILE_BYTES:
         raise HTTPException(
@@ -290,7 +341,6 @@ async def gdrive_download_file(
             f"File is {file_size / 1024 / 1024:.1f} MB; maximum is 10 MB.",
         )
 
-    # Download file content
     async with httpx.AsyncClient(timeout=60) as client:
         dl = await client.get(
             f"{_DRIVE_API_BASE}/files/{file_id}",
@@ -305,10 +355,3 @@ async def gdrive_download_file(
         media_type=mime_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-# ── Tiny async sleep (avoids blocking the event loop) ────────────────────────
-
-async def _async_sleep(seconds: float) -> None:
-    import asyncio
-    await asyncio.sleep(seconds)

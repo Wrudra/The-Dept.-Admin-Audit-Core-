@@ -14,8 +14,8 @@ Typical workflow:
   4. Interpret deficiency field             — advise student on missing requirements
 
 For transcripts stored in Google Drive:
-  gdrive_authorize / gdrive_authorize_complete → gdrive_list_files
-  → gdrive_download_and_audit
+  gdrive_authorize (open auth_url in browser) → gdrive_authorize_complete
+  → gdrive_list_files → gdrive_download_and_audit
 
 ── Hosted vs stdio mode ──────────────────────────────────────────────────────
 When running as a hosted HTTP/SSE server (mounted in FastAPI), each connecting
@@ -59,13 +59,13 @@ from ._client import (
     get_token_or_raise,
 )
 from ._gdrive import (
-    complete_gdrive_flow,
+    gdrive_auth_status,
     gdrive_download_file,
     gdrive_list_files as _gdrive_list_files,
     start_gdrive_flow,
 )
 from ._gmail import (
-    complete_gmail_flow,
+    gmail_auth_status,
     send_report_via_backend,
     start_gmail_flow,
 )
@@ -83,12 +83,12 @@ mcp = FastMCP(
         "  3. discover_choices(transcript_path, program) — learn what picks/waivers are needed\n"
         "  4. run_audit(transcript_path, program, answers) — full audit, get result + deficiency\n\n"
         "For transcripts on Google Drive:\n"
-        "  gdrive_authorize → gdrive_authorize_complete → gdrive_list_files "
-        "→ gdrive_download_and_audit\n\n"
+        "  gdrive_authorize (open auth_url) → gdrive_authorize_complete "
+        "→ gdrive_list_files → gdrive_download_and_audit\n\n"
         "Catalog / requirements queries (no session needed):\n"
         "  lookup_course, list_program_requirements\n\n"
         "Gmail report tools (requires gmail_authorize first):\n"
-        "  gmail_authorize → gmail_authorize_complete → send_audit_report"
+        "  gmail_authorize (open auth_url) → gmail_authorize_complete → send_audit_report"
     ),
 )
 
@@ -133,9 +133,16 @@ def _validate_run_id(run_id: str) -> str:
 
 def _validate_transcript_path(path: str) -> Path:
     """Resolve and validate a local transcript path."""
+    import os
+    
+    # Rewrite local macOS path to Docker container /app path if necessary
+    local_prefix = "/Users/rudratahsin/Developer/The-Dept.-Admin-Audit-Core-"
+    if path.startswith(local_prefix):
+        path = "/app" + path[len(local_prefix):]
+        
     p = Path(path).resolve()
     if not p.is_file():
-        raise ValueError(f"File not found or not a regular file: {path!r}")
+        raise ValueError(f"File not found or not a regular file: {path!r} (resolved to {p})")
     ext = p.suffix.lower()
     if ext not in _ALLOWED_EXTS:
         raise ValueError(
@@ -639,45 +646,45 @@ async def get_admin_stats(ctx: Context) -> dict:
 
 @mcp.tool()
 async def gdrive_authorize(ctx: Context) -> dict:
-    """Start Google Drive read-only authorization (device flow).
+    """Start Google Drive read-only authorization (OAuth 2.0 web flow).
 
     The backend handles all OAuth credentials — they never reach this client.
 
-    Returns a ``user_code`` and ``verification_url``:
-      1. Open ``verification_url`` in a browser.
-      2. Enter ``user_code`` when prompted.
-      3. Approve read-only Drive access.
-    Then call ``gdrive_authorize_complete`` with the returned ``device_code``.
+    Returns an ``auth_url``:
+      1. Open ``auth_url`` in any browser.
+      2. Sign in with your Google account and approve read-only Drive access.
+      3. The backend stores the token automatically — nothing more to do.
+    Then call ``gdrive_authorize_complete`` to confirm the token was stored.
 
-    Access is strictly read-only (``drive.readonly`` scope).
+    Access is strictly read-only (``drive.readonly`` scope, no modifications).
     """
     token  = await get_token_or_raise(ctx)
     result = await asyncio.to_thread(start_gdrive_flow, token)
-    return {
-        **result,
-        "scope": "drive.readonly — read access only, no modifications",
-        "next_step": (
-            "Open the verification_url in a browser, enter the user_code, "
-            "approve access, then call `gdrive_authorize_complete` passing the device_code returned here."
-        ),
-    }
+    return result
 
 
 @mcp.tool()
-async def gdrive_authorize_complete(ctx: Context, device_code: str) -> dict:
-    """Finish Google Drive authorization after browser approval.
+async def gdrive_authorize_complete(ctx: Context) -> dict:
+    """Confirm Google Drive authorization succeeded after browser approval.
 
-    Args:
-        device_code: The ``device_code`` returned by ``gdrive_authorize``.
-
-    Call after entering the code and approving access in the browser.
-    The backend polls Google and stores the token server-side.
+    Call after opening the ``auth_url`` from ``gdrive_authorize`` and
+    approving access.  The backend stores the token automatically via
+    the OAuth callback — this just verifies it worked.
     """
-    token = await get_token_or_raise(ctx)
-    await asyncio.to_thread(complete_gdrive_flow, token, device_code)
+    token  = await get_token_or_raise(ctx)
+    status = await asyncio.to_thread(gdrive_auth_status, token)
+    if status.get("authorized"):
+        return {
+            "ok":      True,
+            "message": "Google Drive read-only access authorized successfully.",
+        }
     return {
-        "ok":      True,
-        "message": "Google Drive read-only access authorized successfully.",
+        "ok":      False,
+        "message": (
+            "Drive authorization not yet detected. "
+            "Make sure you opened the auth_url and approved access in the browser, "
+            "then try again."
+        ),
     }
 
 
@@ -766,45 +773,46 @@ async def gdrive_download_and_audit(
 
 @mcp.tool()
 async def gmail_authorize(ctx: Context) -> dict:
-    """Start Gmail send-only authorization (device flow).
+    """Start Gmail send-only authorization (OAuth 2.0 web flow).
 
     The backend handles all OAuth credentials — they never reach this client.
     The Google Cloud project must have the Gmail API enabled.
 
-    Returns a ``user_code`` and ``verification_url``:
-      1. Open ``verification_url`` in a browser.
-      2. Enter ``user_code`` when prompted.
-      3. Approve send-only Gmail access.
-    Then call ``gmail_authorize_complete`` with the returned ``device_code``.
+    Returns an ``auth_url``:
+      1. Open ``auth_url`` in any browser.
+      2. Sign in with your Google account and approve send-only Gmail access.
+      3. The backend stores the token automatically — nothing more to do.
+    Then call ``gmail_authorize_complete`` to confirm the token was stored.
 
     Only the ``gmail.send`` scope is requested — inbox is never read.
     """
     token  = await get_token_or_raise(ctx)
     result = await asyncio.to_thread(start_gmail_flow, token)
-    return {
-        **result,
-        "scope": "gmail.send — outbound email only, inbox is never read",
-        "next_step": (
-            "Open the verification_url in a browser, enter the user_code, "
-            "approve access, then call `gmail_authorize_complete` passing the device_code returned here."
-        ),
-    }
+    return result
 
 
 @mcp.tool()
-async def gmail_authorize_complete(ctx: Context, device_code: str) -> dict:
-    """Finish Gmail authorization after browser approval.
+async def gmail_authorize_complete(ctx: Context) -> dict:
+    """Confirm Gmail authorization succeeded after browser approval.
 
-    Args:
-        device_code: The ``device_code`` returned by ``gmail_authorize``.
-
-    The backend polls Google and stores the token server-side.
+    Call after opening the ``auth_url`` from ``gmail_authorize`` and
+    approving access.  The backend stores the token automatically via
+    the OAuth callback — this just verifies it worked.
     """
-    token = await get_token_or_raise(ctx)
-    await asyncio.to_thread(complete_gmail_flow, token, device_code)
+    token  = await get_token_or_raise(ctx)
+    status = await asyncio.to_thread(gmail_auth_status, token)
+    if status.get("authorized"):
+        return {
+            "ok":      True,
+            "message": "Gmail send-only access authorized successfully.",
+        }
     return {
-        "ok":      True,
-        "message": "Gmail send-only access authorized successfully.",
+        "ok":      False,
+        "message": (
+            "Gmail authorization not yet detected. "
+            "Make sure you opened the auth_url and approved access in the browser, "
+            "then try again."
+        ),
     }
 
 

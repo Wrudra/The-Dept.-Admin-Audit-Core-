@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "nsu-audit": {
+      "type": "remote",
+      "url": "https://mara-xyloid-dortha.ngrok-free.dev/mcp/mcp",
+      "enabled": true,
+      "timeout": 60000,
+      "headers": {
+        "X-MCP-Secret": "90aee680c813356dffa95203fbfc4122cfccdeaadc784781445a9d1d98049045"
+      }
+    }
+  }
+}

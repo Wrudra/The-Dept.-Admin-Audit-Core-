@@ -2,7 +2,11 @@
 
 All OAuth credentials live on the backend server.
 Functions accept an explicit ``token`` (NSU Audit JWT) so they work in both
-stdio mode and hosted HTTP/SSE mode without touching the local credentials file.
+stdio mode and hosted HTTP/SSE mode.
+
+Authorization uses the standard OAuth 2.0 Authorization Code flow:
+  - start_gdrive_flow  → GET /api/gdrive/authorize/start → returns auth_url
+  - gdrive_auth_status → GET /api/gdrive/authorize/status → {"authorized": bool}
 """
 from typing import Tuple
 
@@ -16,28 +20,31 @@ def _headers(token: str) -> dict:
 
 
 def start_gdrive_flow(token: str) -> dict:
-    """Ask the backend to start a Drive device-auth flow.
+    """Ask the backend to generate a Google OAuth authorization URL.
 
-    Returns {"user_code", "verification_url", "device_code", ...}.
-    Credentials never leave the server.
+    Returns ``{"auth_url": ..., "scope": ..., "next_step": ...}``.
+    The user must open ``auth_url`` in a browser and approve Drive access.
+    The backend stores the token automatically via the OAuth callback.
     """
     with httpx.Client(timeout=30) as client:
-        resp = client.post(
+        resp = client.get(
             f"{_base_url()}/api/gdrive/authorize/start",
             headers=_headers(token),
         )
     return _handle(resp)
 
 
-def complete_gdrive_flow(token: str, device_code: str) -> None:
-    """Tell the backend to poll Google and store the Drive token."""
-    with httpx.Client(timeout=120) as client:
-        resp = client.post(
-            f"{_base_url()}/api/gdrive/authorize/complete",
+def gdrive_auth_status(token: str) -> dict:
+    """Check whether the current user has authorized Drive access.
+
+    Returns ``{"authorized": true/false}``.
+    """
+    with httpx.Client(timeout=15) as client:
+        resp = client.get(
+            f"{_base_url()}/api/gdrive/authorize/status",
             headers=_headers(token),
-            json={"device_code": device_code},
         )
-    _handle(resp)
+    return _handle(resp)
 
 
 def gdrive_list_files(token: str, query: str = "", page_size: int = 20) -> list:

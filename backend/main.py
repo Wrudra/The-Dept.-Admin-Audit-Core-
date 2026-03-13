@@ -18,13 +18,17 @@ from .routers import admin, audit, auth, gdrive, gmail, history
 from mcp_server.nsu_audit_mcp.server import mcp as _mcp_server
 
 
+mcp_app = _mcp_server.http_app(transport="streamable-http")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure all tables exist on startup (Alembic handles production migrations;
-    # create_all is a safety net for local dev / first run)
+    # Ensure all tables exist on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+        
+    async with mcp_app.lifespan(app):
+        yield
 
 
 app = FastAPI(
@@ -66,9 +70,9 @@ app.include_router(admin.router)
 app.include_router(gdrive.router)
 app.include_router(gmail.router)
 
-# ── Hosted MCP server — /mcp/sse (SSE) + /mcp/messages (POST) ────────────────
-# Friends connect by adding this to their opencode/Claude Desktop config:
-#   { "type": "remote", "url": "https://<your-ngrok-domain>/mcp/sse",
+# ── Hosted MCP server — /mcp (Streamable HTTP) ───────────────────────────────
+# Connect from opencode / Claude Desktop / any MCP client:
+#   { "type": "remote", "url": "https://<your-ngrok-domain>/mcp/mcp",
 #     "headers": { "X-MCP-Secret": "<MCP_SHARED_SECRET from .env>" } }
 
 
@@ -93,7 +97,7 @@ class _McpSecretGuard(BaseHTTPMiddleware):
 
 
 app.add_middleware(_McpSecretGuard)
-app.mount("/mcp", _mcp_server.http_app(transport="sse"))
+app.mount("/mcp", mcp_app)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

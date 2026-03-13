@@ -1,8 +1,19 @@
-"""Gmail router — server-side device flow (gmail.send) + email sending.
+"""Gmail router — OAuth 2.0 Authorization Code flow + email sending.
 
 Uses the same GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET Desktop-app credentials.
 Per-user Gmail tokens are stored in the gmail_tokens table.
 Only the gmail.send scope is requested — inbox is never read.
+
+The device authorization flow is NOT used because Google restricts it to
+YouTube/TV scopes; gmail.send would fail with invalid_scope.  We use the
+standard Authorization Code flow instead:
+
+  1. GET  /api/gmail/authorize/start     — returns ``auth_url`` the user opens
+  2. GET  /api/gmail/authorize/callback  — Google redirects here; token stored
+  3. GET  /api/gmail/authorize/status    — poll to confirm authorization
+
+Works with Desktop-type OAuth 2.0 clients.  Google automatically accepts any
+``http://localhost`` redirect URI for Desktop clients.
 """
 import base64
 import email.mime.application
@@ -10,11 +21,14 @@ import email.mime.multipart
 import email.mime.text
 import io
 import re
+import secrets
 import time
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,14 +41,37 @@ from ..models.gmail_token import GmailToken
 
 router = APIRouter(prefix="/api/gmail", tags=["gmail"])
 
-_GOOGLE_DEVICE_URL = "https://oauth2.googleapis.com/device/code"
-_GOOGLE_TOKEN_URL  = "https://oauth2.googleapis.com/token"
-_GMAIL_SEND_URL    = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
-_DEVICE_GRANT      = "urn:ietf:params:oauth:grant-type:device_code"
-_GMAIL_SCOPE       = "https://www.googleapis.com/auth/gmail.send"
+_GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GMAIL_SEND_URL   = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+_GMAIL_SCOPE      = "https://www.googleapis.com/auth/gmail.send"
 
 _MAX_POLL_ATTEMPTS = 20
 _EMAIL_RE          = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# ── In-memory pending-state store {state → {user_id, exp}} ───────────────────
+
+_PENDING: dict[str, dict] = {}
+_STATE_TTL = 600  # 10 minutes
+
+
+def _redirect_uri() -> str:
+    return f"{settings.backend_url}/api/gmail/authorize/callback"
+
+
+def _put_state(state: str, user_id: str) -> None:
+    now = time.time()
+    expired = [k for k, v in _PENDING.items() if now > v["exp"]]
+    for k in expired:
+        del _PENDING[k]
+    _PENDING[state] = {"user_id": user_id, "exp": now + _STATE_TTL}
+
+
+def _pop_state(state: str) -> Optional[str]:
+    entry = _PENDING.pop(state, None)
+    if not entry or time.time() > entry["exp"]:
+        return None
+    return entry["user_id"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,8 +82,8 @@ def _require_credentials() -> tuple[str, str]:
     if not cid or not sec:
         raise HTTPException(
             503,
-            "Gmail integration is not configured on this server. "
-            "Contact the administrator.",
+            "Gmail integration is not configured. "
+            "Set GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET in the server environment.",
         )
     return cid, sec
 
@@ -56,7 +93,7 @@ async def _get_gmail_token(db: AsyncSession, user_id: str) -> Optional[str]:
         select(GmailToken).where(GmailToken.user_id == user_id)
     )
     row = result.scalar_one_or_none()
-    if not row:
+    if not row or not row.access_token:
         return None
     if time.time() < row.expires_at - 60:
         return row.access_token
@@ -88,95 +125,128 @@ async def _async_sleep(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Auth endpoints ────────────────────────────────────────────────────────────
 
-@router.post("/authorize/start", summary="Start Gmail send-only device flow")
+@router.get("/authorize/start", summary="Start Gmail OAuth authorization")
 async def gmail_authorize_start(
     claims: dict = Depends(get_current_claims),
 ) -> dict:
-    """Start the Device Authorization flow for Gmail send-only access.
+    """Generate a Google OAuth 2.0 URL for Gmail send-only access.
 
-    Returns ``user_code`` and ``verification_url``. The user opens the URL,
-    enters the code, and approves send-only Gmail access in their browser.
-    Then call ``/api/gmail/authorize/complete``.
+    Returns ``auth_url``.  Open it in a browser and approve access.
+    Google will redirect to the backend callback automatically.
+    Poll ``/authorize/status`` to confirm, or call ``gmail_authorize_complete``.
 
-    Only ``gmail.send`` scope is requested — the inbox is never read.
-    OAuth credentials never leave the server.
+    Only the ``gmail.send`` scope is requested — inbox is never read.
     """
     cid, _ = _require_credentials()
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            _GOOGLE_DEVICE_URL,
-            data={"client_id": cid, "scope": _GMAIL_SCOPE},
-        )
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Failed to start Gmail authorization: {resp.text}")
-    data = resp.json()
+    state = secrets.token_urlsafe(32)
+    _put_state(state, claims["user_id"])
+
+    auth_url = _GOOGLE_AUTH_URL + "?" + urlencode({
+        "client_id":     cid,
+        "redirect_uri":  _redirect_uri(),
+        "response_type": "code",
+        "scope":         _GMAIL_SCOPE,
+        "state":         state,
+        "access_type":   "offline",
+        "prompt":        "consent",
+    })
+
     return {
-        "user_code":        data["user_code"],
-        "verification_url": data["verification_url"],
-        "device_code":      data["device_code"],
-        "interval":         data.get("interval", 5),
-        "expires_in":       data.get("expires_in", 1800),
-        "scope":            "gmail.send — outbound only, inbox never read",
+        "auth_url": auth_url,
+        "scope":    "gmail.send — outbound only, inbox never read",
+        "next_step": (
+            "Open auth_url in a browser and approve Gmail send-only access. "
+            "The backend stores the token automatically via the OAuth callback. "
+            "Then call gmail_authorize_complete to confirm."
+        ),
     }
 
 
-class GmailCompleteRequest(BaseModel):
-    device_code: str
+@router.get("/authorize/callback", summary="OAuth callback — Google redirects here")
+async def gmail_authorize_callback(
+    code:  str = Query(...),
+    state: str = Query(...),
+    db:    AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Receive the authorization code from Google and exchange it for tokens."""
+    user_id = _pop_state(state)
+    if not user_id:
+        return HTMLResponse(
+            "<h2 style='font-family:sans-serif;color:#c00'>Authorization failed</h2>"
+            "<p style='font-family:sans-serif'>Invalid or expired state. "
+            "Please start the authorization again.</p>",
+            status_code=400,
+        )
+
+    cid, sec = _require_credentials()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            _GOOGLE_TOKEN_URL,
+            data={
+                "grant_type":   "authorization_code",
+                "code":          code,
+                "redirect_uri":  _redirect_uri(),
+                "client_id":     cid,
+                "client_secret": sec,
+            },
+        )
+
+    if resp.status_code != 200:
+        return HTMLResponse(
+            f"<h2 style='font-family:sans-serif;color:#c00'>Authorization failed</h2>"
+            f"<p style='font-family:sans-serif'>{resp.text}</p>",
+            status_code=502,
+        )
+
+    tok = resp.json()
+    result = await db.execute(
+        select(GmailToken).where(GmailToken.user_id == user_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = GmailToken(user_id=user_id)
+        db.add(row)
+    row.access_token  = tok["access_token"]
+    row.refresh_token = tok.get("refresh_token") or row.refresh_token
+    row.expires_at    = time.time() + tok.get("expires_in", 3600)
+    await db.commit()
+
+    return HTMLResponse(
+        "<h2 style='font-family:sans-serif;color:#1a7a1a'>Gmail authorized ✓</h2>"
+        "<p style='font-family:sans-serif'>"
+        "Send-only access granted. You can close this tab.</p>"
+    )
 
 
-@router.post("/authorize/complete", summary="Complete Gmail device flow")
-async def gmail_authorize_complete(
-    body:   GmailCompleteRequest,
+@router.get("/authorize/status", summary="Check Gmail authorization status")
+async def gmail_authorize_status(
     claims: dict         = Depends(get_current_claims),
     db:     AsyncSession = Depends(get_db),
 ) -> dict:
-    """Poll Google for the Gmail token after the user approved in browser."""
-    cid, sec = _require_credentials()
-    user_id  = claims["user_id"]
+    """Return whether the current user has a valid Gmail token stored."""
+    token = await _get_gmail_token(db, claims["user_id"])
+    return {"authorized": token is not None}
 
-    for _ in range(_MAX_POLL_ATTEMPTS):
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                _GOOGLE_TOKEN_URL,
-                data={
-                    "grant_type":    _DEVICE_GRANT,
-                    "device_code":   body.device_code,
-                    "client_id":     cid,
-                    "client_secret": sec,
-                },
-            )
-        if resp.status_code == 200:
-            tok = resp.json()
-            result = await db.execute(
-                select(GmailToken).where(GmailToken.user_id == user_id)
-            )
-            row = result.scalar_one_or_none()
-            if row is None:
-                row = GmailToken(user_id=user_id)
-                db.add(row)
-            row.access_token  = tok["access_token"]
-            row.refresh_token = tok.get("refresh_token", "")
-            row.expires_at    = time.time() + tok.get("expires_in", 3600)
-            await db.commit()
-            return {"ok": True, "message": "Gmail send-only access granted."}
 
-        err = resp.json().get("error", "")
-        if err == "authorization_pending":
-            await _async_sleep(5)
-            continue
-        if err == "slow_down":
-            await _async_sleep(10)
-            continue
-        raise HTTPException(400, f"Gmail authorization failed: {err}")
-
-    raise HTTPException(
-        408,
-        "Timed out waiting for Gmail authorization. "
-        "Approve in the browser first, then call this endpoint again.",
+@router.post("/authorize/revoke", summary="Revoke Gmail authorization")
+async def gmail_authorize_revoke(
+    claims: dict         = Depends(get_current_claims),
+    db:     AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete the stored Gmail token for the current user."""
+    result = await db.execute(
+        select(GmailToken).where(GmailToken.user_id == claims["user_id"])
     )
+    row = result.scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return {"ok": True, "message": "Gmail authorization revoked."}
 
+
+# ── Send-report endpoint ──────────────────────────────────────────────────────
 
 class SendReportRequest(BaseModel):
     run_id:  str
@@ -214,7 +284,6 @@ async def send_audit_report(
             "Gmail not authorized. Call /api/gmail/authorize/start first.",
         )
 
-    # Fetch the audit run — user must own it
     result = await db.execute(
         select(AuditRun).where(
             AuditRun.id == body.run_id,
@@ -225,15 +294,14 @@ async def send_audit_report(
     if not run:
         raise HTTPException(404, "Audit run not found or not owned by you.")
 
-    audit_result = run.result or {}
+    audit_result = run.result_json or {}
 
-    # Build Excel
     try:
         xlsx_bytes = _build_excel(audit_result)
     except ImportError:
         raise HTTPException(500, "openpyxl not installed on server.")
 
-    subject  = body.subject
+    subject = body.subject
     if not subject:
         program  = audit_result.get("program", "")
         eligible = (audit_result.get("deficiency") or {}).get("eligible", False)
