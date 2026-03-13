@@ -1,12 +1,15 @@
 """Google OAuth 2.0 helpers — PKCE (web) and Device Authorization Grant (CLI)."""
 import base64
 import hashlib
+import logging
 import secrets
 import time
 from urllib.parse import urlencode
 
 import httpx
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 from ..config import settings
 
@@ -70,6 +73,10 @@ async def exchange_code(code: str, code_verifier: str) -> dict:
         )
 
     if resp.status_code != 200:
+        logger.error(
+            "Google token exchange failed — status=%s body=%s redirect_uri=%s",
+            resp.status_code, resp.text, settings.google_redirect_uri,
+        )
         raise HTTPException(status_code=400, detail="Google token exchange failed.")
 
     id_token = resp.json().get("id_token")

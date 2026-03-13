@@ -204,6 +204,15 @@ def _load_catalog() -> set:
 # AUTH TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _fetch_device_start(base_url: str) -> dict:
+    """Blocking helper — call the backend's device/start endpoint."""
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(f"{base_url}/api/auth/device/start")
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to start OAuth flow: {resp.text}")
+    return resp.json()
+
+
 @mcp.tool()
 async def nsu_oauth_start(ctx: Context) -> dict:
     """Begin Google OAuth 2.0 Device Authorization for the NSU Audit API.
@@ -219,11 +228,10 @@ async def nsu_oauth_start(ctx: Context) -> dict:
       3. Approve access (only @northsouth.edu accounts are accepted).
       4. Call ``nsu_oauth_complete`` to exchange the grant for an API session.
     """
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(f"{_base_url()}/api/auth/device/start")
-    if resp.status_code != 200:
-        raise RuntimeError(f"Failed to start OAuth flow: {resp.text}")
-    data = resp.json()
+    # Run the blocking HTTP call in a thread so the event loop stays free.
+    # This is critical when running in hosted mode (MCP mounted inside FastAPI)
+    # — a direct blocking call would deadlock the shared event loop.
+    data = await asyncio.to_thread(_fetch_device_start, _base_url())
     # Store in session state (isolated per user in hosted mode) + disk (stdio mode).
     await store_pending(ctx, data)
     return {

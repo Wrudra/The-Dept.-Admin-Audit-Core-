@@ -60,24 +60,23 @@ async def get_token_or_raise(ctx: "Context") -> str:
 
 def _handle(resp: httpx.Response) -> Any:
     """Raise a descriptive RuntimeError for any non-2xx response."""
-    if resp.status_code == 401:
-        raise RuntimeError(
-            "Session expired or invalid. Call `nsu_oauth_start` and "
-            "`nsu_oauth_complete` again."
-        )
-    if resp.status_code == 403:
-        raise RuntimeError("Forbidden. You don't have permission for this action.")
-    if resp.status_code == 404:
-        raise RuntimeError("Resource not found.")
-    if resp.status_code == 429:
-        raise RuntimeError(
-            "Rate limit exceeded (max 5 audits / 60 s). Wait a moment and try again."
-        )
     if resp.status_code >= 400:
         try:
             detail = resp.json().get("detail", resp.text)
         except Exception:
             detail = resp.text
+        if resp.status_code == 401:
+            # Surface the actual backend message so the AI can distinguish
+            # "NSU session expired" from "Drive not authorized", etc.
+            raise RuntimeError(f"Unauthorized: {detail}")
+        if resp.status_code == 403:
+            raise RuntimeError(f"Forbidden: {detail}")
+        if resp.status_code == 404:
+            raise RuntimeError("Resource not found.")
+        if resp.status_code == 429:
+            raise RuntimeError(
+                "Rate limit exceeded (max 5 audits / 60 s). Wait a moment and try again."
+            )
         raise RuntimeError(f"API error {resp.status_code}: {detail}")
     return resp.json()
 
