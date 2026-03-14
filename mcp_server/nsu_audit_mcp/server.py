@@ -74,22 +74,49 @@ from ._gmail import (
 
 mcp = FastMCP(
     name="nsu-audit",
-    instructions=(
-        "Tools for running graduation eligibility audits on NSU (North South University) "
-        "student transcripts. Programs supported: CSE (130 credits) and MIC (120 credits).\n\n"
-        "Typical OAuth → Audit workflow:\n"
-        "  1. nsu_oauth_start   — begin Google OAuth 2.0 device flow (RFC 8628)\n"
-        "  2. nsu_oauth_complete — finish after browser approval\n"
-        "  3. discover_choices(transcript_path, program) — learn what picks/waivers are needed\n"
-        "  4. run_audit(transcript_path, program, answers) — full audit, get result + deficiency\n\n"
-        "For transcripts on Google Drive:\n"
-        "  gdrive_authorize (open auth_url) → gdrive_authorize_complete "
-        "→ gdrive_list_files → gdrive_download_and_audit\n\n"
-        "Catalog / requirements queries (no session needed):\n"
-        "  lookup_course, list_program_requirements\n\n"
-        "Gmail report tools (requires gmail_authorize first):\n"
-        "  gmail_authorize (open auth_url) → gmail_authorize_complete → send_audit_report"
-    ),
+    instructions="""
+NSU Graduation Audit server.
+Supported programs: CSE (130 cr) and MIC (120 cr).
+
+## Workflows — follow steps in exact order
+
+### Local transcript audit
+1. nsu_oauth_start        — returns user_code + verification_url; show both to user
+2. nsu_oauth_complete     — call after user approves in browser; confirms session
+3. discover_choices(transcript_path, program)
+                          — returns choices array; ask user EVERY question explicitly
+4. run_audit(transcript_path, program, answers)
+                          — final audit; pass all collected answers
+
+### Google Drive transcript audit
+1. nsu_oauth_start → nsu_oauth_complete    (same as above)
+2. gdrive_authorize       — returns auth_url; user must open it in browser
+3. gdrive_authorize_complete              — confirm Drive token stored
+4. gdrive_list_files      — let user pick a file; note the file_id
+5. gdrive_discover_choices(file_id, program)
+                          — returns choices array; ask user EVERY question
+6. gdrive_download_and_audit(file_id, program, answers)
+                          — final audit; pass all collected answers
+
+### Email a report (after audit)
+1. gmail_authorize → gmail_authorize_complete
+2. send_audit_report(run_id, to)
+
+### No login needed
+- lookup_course, list_program_requirements
+
+## Rules — never violate
+- Always call discover_choices (or gdrive_discover_choices) before running an audit. Never skip it.
+- After discover_choices, ask the user ONE question at a time, in order.
+  Wait for the user's answer before asking the next question.
+  Never show all choices as a summary list and ask for bulk "confirm" — that defeats the purpose.
+- The "selected" value in each choice is the AUTO-SELECTED DEFAULT, NOT the user's answer.
+  Always ask the user. Never treat a default as confirmed.
+- Never guess, assume, or auto-fill any answer. If unsure, ask.
+- If a tool raises "Not authenticated", call nsu_oauth_start immediately.
+- Prefer referencing an existing run_id over re-running when the user asks about a past audit.
+- Audit runs are permanent — there is no delete. Never offer to delete history.
+""",
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -329,31 +356,39 @@ async def discover_choices(
     program: str,
     answers: Optional[dict] = None,
 ) -> dict:
-    """Preview the interactive choices the audit engine will ask for.
+    """Preview the interactive choices the audit engine will ask for a local transcript.
+
+    Prerequisites: nsu_oauth_complete must be done first.
 
     Submits the transcript without saving a run record and returns a
     ``choices`` array that describes every decision point:
-      - Waiver confirmations (ENG102, MAT112)
+      - Waiver confirmations (ENG102 for CSE/MIC, MAT112 for MIC)
       - Specialization trail selection (CSE only — 6 available trails)
       - Elective course picks
       - Internship/project slot choices
 
-    Use the ``choices`` array to build a complete ``answers`` dict of the form::
+    After receiving the choices array, ask the user ONE question at a time,
+    in order. Wait for the answer before asking the next. Never present all
+    choices as a summary list for bulk confirmation — that bypasses this flow.
 
-        {
-          "yn_0": true,          # waiver accepted
-          "pick_0": "CSE440",    # trail course 1
-          "pick_1": "CSE445",    # trail course 2
-          ...
-        }
+    IMPORTANT: the ``selected`` field in each choice is the ENGINE'S AUTO-SELECTED
+    DEFAULT, not the user's answer. Always ask the user. Never treat a default
+    as confirmed. Show the default only as a hint (e.g. "default: CSE445").
 
-    Then pass that dict to ``run_audit``.  Call this tool again with a
-    partial ``answers`` dict whenever a pick changes the downstream options.
+    Re-call with a partial ``answers`` dict whenever a pick changes downstream
+    options (e.g. changing the trail refreshes which elective slots appear).
 
     Args:
         transcript_path: Absolute path to the transcript file (.csv, .pdf, image).
         program:         Degree program — ``'CSE'`` or ``'MIC'``.
         answers:         Optional partial answers dict from a previous call.
+
+    Returns:
+        choices: list of decision points, each with:
+                   key (e.g. yn_0, pick_1), type (yes_no | pick),
+                   prompt/label, options[], display[] labels,
+                   selected = AUTO-DEFAULT ONLY (not the user's answer).
+        result:  Audit result computed with auto-defaults (preview only).
     """
     token = await get_token_or_raise(ctx)
     p     = _validate_transcript_path(transcript_path)
@@ -371,31 +406,31 @@ async def run_audit(
     answers: Optional[dict] = None,
     save: bool = True,
 ) -> dict:
-    """Run a full graduation eligibility audit on a student transcript.
+    """Run a full graduation eligibility audit on a local student transcript.
+
+    Prerequisites: nsu_oauth_complete done; call discover_choices first and
+    collect ALL answers from the user before calling this tool.
 
     Accepts CSV (already converted), PDF, or a scanned image.
     For PDFs and images the backend OCR-converts the file automatically.
 
-    Returns a result dict that includes:
-      - ``cgpa``              Computed GPA on the NSU 4.0 scale
-      - ``credit_completed``  Total valid credits earned
-      - ``required_credits``  Credits needed for the degree (130 CSE / 120 MIC)
-      - ``academic_standing`` First Class / Second Class / Third Class / Below Standard
-      - ``deficiency``        Eligibility verdict with:
-          - ``eligible``              bool
-          - ``credit_shortfall``      float (0 if none)
-          - ``probation``             bool (CGPA < 2.0)
-          - ``missing_mandatory``     list of {category, courses[]}
-          - ``prereq_failures_list``  list of {course, reason}
-      - ``run_id``            UUID for later retrieval (only when save=True)
-
-    Call ``discover_choices`` first to learn what keys to include in ``answers``.
-
     Args:
         transcript_path: Absolute path to the transcript file (.csv, .pdf, image).
         program:         Degree program — ``'CSE'`` or ``'MIC'``.
-        answers:         Pre-supplied choices dict (keys: pick_0, yn_0, ...).
-        save:            Persist the run to the database (default True).
+        answers:         Completed answers dict built from discover_choices output.
+                         Pass ``{}`` only if discover_choices returned no choices.
+        save:            Persist the run to the database. Default true; set false
+                         only for dry-run testing.
+
+    Returns:
+        run_id:           UUID — save this for send_audit_report or get_audit_run.
+        cgpa:             GPA on the NSU 4.0 scale.
+        credit_completed: Valid credits earned toward the degree.
+        required_credits: Credits required (130 CSE / 120 MIC).
+        academic_standing: First Class / Second Class / Third Class / Below Standard.
+        deficiency:       eligible (bool), credit_shortfall, probation,
+                          missing_mandatory [{category, courses[]}],
+                          prereq_failures_list [{course, reason}].
     """
     token = await get_token_or_raise(ctx)
     p     = _validate_transcript_path(transcript_path)
@@ -409,8 +444,15 @@ async def run_audit(
 async def get_audit_run(ctx: Context, run_id: str) -> dict:
     """Retrieve the full result and answers for a previously saved audit run.
 
+    Prerequisites: nsu_oauth_complete done.
+
+    Use this instead of re-running the audit when the user references a past result.
+
     Args:
-        run_id: UUID of the audit run (from the ``run_audit`` response).
+        run_id: UUID of the audit run (from run_audit or list_audit_history).
+
+    Returns:
+        Full result dict identical to run_audit output, plus stored answers.
     """
     token = await get_token_or_raise(ctx)
     rid   = _validate_run_id(run_id)
@@ -429,8 +471,19 @@ async def list_audit_history(
 ) -> dict:
     """List the authenticated user's past audit runs, most recent first.
 
-    Returns a lightweight summary per run (cgpa, credit_completed, program,
-    status, timestamps).  Use ``get_audit_run`` for the full result of a run.
+    Prerequisites: nsu_oauth_complete done.
+
+    Always display ALL returned fields, especially ``source`` (web/cli/mcp)
+    so the user can see which platform each run came from.
+    Use ``get_audit_run`` for the full result of a specific run.
+
+    Args:
+        limit:  Runs to return (1–100, default 20).
+        offset: Pagination offset (default 0).
+
+    Returns:
+        runs: list of {run_id, program, source, cgpa, credit_completed,
+              required_credits, status, created_at, completed_at}.
 
     Args:
         limit:  Number of runs to return (1–100, default 20).
@@ -457,19 +510,6 @@ async def get_history_run(ctx: Context, run_id: str) -> dict:
     rid   = _validate_run_id(run_id)
     return await asyncio.to_thread(api_get, f"/api/history/{rid}", token)
 
-
-@mcp.tool()
-async def delete_audit_run(ctx: Context, run_id: str) -> dict:
-    """Permanently delete a past audit run from the database.
-
-    This action is irreversible.  Only the owner of the run can delete it.
-
-    Args:
-        run_id: UUID of the audit run to delete.
-    """
-    token = await get_token_or_raise(ctx)
-    rid   = _validate_run_id(run_id)
-    return await asyncio.to_thread(api_delete, f"/api/history/{rid}", token)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -706,7 +746,7 @@ async def gdrive_list_files(
 
     Returns a list of file objects with ``id``, ``name``, ``mimeType``,
     ``size``, and ``modifiedTime``.  Pass the ``id`` to
-    ``gdrive_download_and_audit``.
+    ``gdrive_discover_choices`` (then ``gdrive_download_and_audit``).
     """
     if not 1 <= page_size <= 100:
         raise ValueError("page_size must be between 1 and 100.")
@@ -714,6 +754,75 @@ async def gdrive_list_files(
     return await asyncio.to_thread(
         _gdrive_list_files, token, search, page_size
     )
+
+
+def _gdrive_download_to_tmp(token: str, file_id: str) -> tuple[Path, str]:
+    """Download a Drive file to a named temp file. Caller must unlink when done."""
+    file_bytes, filename = gdrive_download_file(token, file_id)
+    ext = Path(filename).suffix.lower() or ".pdf"
+    if ext not in _ALLOWED_EXTS:
+        raise ValueError(
+            f"Unsupported file extension '{ext}' from Google Drive. "
+            f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
+        )
+    fd, tmp_str = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+    tmp = Path(tmp_str)
+    tmp.write_bytes(file_bytes)
+    safe_name = Path(filename).name or f"transcript{ext}"
+    tmp = tmp.rename(tmp.parent / safe_name)
+    return tmp, filename
+
+
+@mcp.tool()
+async def gdrive_discover_choices(
+    ctx: Context,
+    file_id: str,
+    program: str,
+    answers: Optional[dict] = None,
+) -> dict:
+    """Preview the interactive choices for a Google Drive transcript.
+
+    Prerequisites: nsu_oauth_complete and gdrive_authorize_complete done.
+
+    Downloads the file and runs a non-saving probe audit to discover every
+    decision point — waivers, specialization trail, elective picks — exactly
+    as ``discover_choices`` does for local files.
+
+    Always call this before ``gdrive_download_and_audit``. After receiving
+    choices, ask the user ONE question at a time, in order. Wait for the
+    answer before asking the next. Never present all choices as a summary
+    list for bulk confirmation — that bypasses this flow.
+
+    IMPORTANT: the ``selected`` field in each choice is the ENGINE'S AUTO-SELECTED
+    DEFAULT, not the user's answer. Always ask the user. Never treat a default
+    as confirmed. Show the default only as a hint (e.g. "default: CSE445").
+
+    Re-call with a partial ``answers`` dict whenever a pick changes downstream
+    options (e.g. changing the trail refreshes which elective slots appear).
+
+    Args:
+        file_id: Google Drive file ID (from ``gdrive_list_files``).
+        program: Degree program — ``'CSE'`` or ``'MIC'``.
+        answers: Optional partial answers dict from a previous call.
+
+    Returns:
+        choices: list of decision points, each with:
+                   key (e.g. yn_0, pick_1), type (yes_no | pick),
+                   prompt/label, options[], display[] labels,
+                   selected = AUTO-DEFAULT ONLY (not the user's answer).
+        result:  Audit result computed with auto-defaults (preview only).
+    """
+    token = await get_token_or_raise(ctx)
+    prog  = _validate_program(program)
+
+    tmp, _ = await asyncio.to_thread(_gdrive_download_to_tmp, token, file_id)
+    try:
+        return await asyncio.to_thread(
+            _upload_transcript, tmp, prog, answers or {}, False, token
+        )
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @mcp.tool()
@@ -724,43 +833,31 @@ async def gdrive_download_and_audit(
     answers: Optional[dict] = None,
     save: bool = True,
 ) -> dict:
-    """Download a transcript from Google Drive and run a graduation eligibility audit.
+    """Download a transcript from Google Drive and run the final graduation eligibility audit.
 
-    Combines Google Drive download and ``run_audit`` in one step.
+    Prerequisites: nsu_oauth_complete and gdrive_authorize_complete done;
+    call gdrive_discover_choices first and collect ALL answers from the user.
+
     The file is downloaded to a secure temporary path, submitted to the
-    backend, and the temp file is deleted immediately after.
-
-    Requires both NSU Audit login and Google Drive authorization.
+    backend, and deleted immediately after.
 
     Args:
         file_id: Google Drive file ID (from ``gdrive_list_files``).
         program: Degree program — ``'CSE'`` or ``'MIC'``.
-        answers: Pre-supplied choices dict (see ``discover_choices``).
-        save:    Persist the run to the database (default True).
+        answers: Completed answers dict from gdrive_discover_choices
+                 (keys: yn_0, pick_0, pick_1, …). Pass ``{}`` only if
+                 gdrive_discover_choices returned no choices.
+        save:    Persist the run. Default true; false for dry-run testing.
+
+    Returns:
+        Same as run_audit: run_id, cgpa, credit_completed, required_credits,
+        academic_standing, deficiency {eligible, credit_shortfall, ...}.
     """
     token = await get_token_or_raise(ctx)
     prog  = _validate_program(program)
 
-    file_bytes, filename = await asyncio.to_thread(
-        gdrive_download_file, token, file_id
-    )
-
-    ext = Path(filename).suffix.lower()
-    if not ext:
-        ext = ".pdf"
-    if ext not in _ALLOWED_EXTS:
-        raise ValueError(
-            f"Unsupported file extension '{ext}' from Google Drive. "
-            f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
-        )
-
-    fd, tmp_str = tempfile.mkstemp(suffix=ext)
-    os.close(fd)
-    tmp = Path(tmp_str)
+    tmp, _ = await asyncio.to_thread(_gdrive_download_to_tmp, token, file_id)
     try:
-        tmp.write_bytes(file_bytes)
-        safe_name = Path(filename).name or f"transcript{ext}"
-        tmp = tmp.rename(tmp.parent / safe_name)
         return await asyncio.to_thread(
             _upload_transcript, tmp, prog, answers or {}, save, token
         )

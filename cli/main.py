@@ -519,12 +519,15 @@ def history(
         return
 
     table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
-    table.add_column("Run ID", style="dim", width=10)
+    table.add_column("Run ID",  style="dim", width=10)
     table.add_column("Program", width=7)
+    table.add_column("Source",  width=8)
     table.add_column("CGPA",    width=6)
     table.add_column("Credits", width=12)
     table.add_column("Status",  width=10)
     table.add_column("Date",    width=20)
+
+    _SOURCE_STYLE = {"web": "cyan", "cli": "yellow", "mcp": "magenta"}
 
     for r in runs:
         cgpa    = str(r["cgpa"])    if r["cgpa"]    is not None else "—"
@@ -532,9 +535,12 @@ def history(
             f"{r['credit_completed']}/{r['required_credits']}"
             if r["credit_completed"] is not None else "—"
         )
+        src       = (r.get("source") or "web").lower()
+        src_style = _SOURCE_STYLE.get(src, "white")
         table.add_row(
             r["run_id"][:8],
             r["program"],
+            f"[{src_style}]{src.upper()}[/{src_style}]",
             cgpa,
             credits,
             r["status"],
@@ -815,21 +821,29 @@ def _tui_do_history(token: str) -> None:
         return
 
     table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
-    table.add_column("Run ID",   style="dim", width=10)
-    table.add_column("Program",  width=7)
-    table.add_column("CGPA",     width=6)
-    table.add_column("Credits",  width=12)
-    table.add_column("Status",   width=10)
-    table.add_column("Date",     width=20)
+    table.add_column("Run ID",  style="dim", width=10)
+    table.add_column("Program", width=7)
+    table.add_column("Source",  width=8)
+    table.add_column("CGPA",    width=6)
+    table.add_column("Credits", width=12)
+    table.add_column("Status",  width=10)
+    table.add_column("Date",    width=20)
+
+    _SOURCE_STYLE = {"web": "cyan", "cli": "yellow", "mcp": "magenta"}
+
     for r in runs:
         cgpa    = str(r["cgpa"]) if r["cgpa"] is not None else "—"
         credits = (
             f"{r['credit_completed']}/{r['required_credits']}"
             if r["credit_completed"] is not None else "—"
         )
+        src       = (r.get("source") or "web").lower()
+        src_style = _SOURCE_STYLE.get(src, "white")
         table.add_row(
-            r["run_id"][:8], r["program"], cgpa, credits,
-            r["status"], r["created_at"][:19].replace("T", " "),
+            r["run_id"][:8], r["program"],
+            f"[{src_style}]{src.upper()}[/{src_style}]",
+            cgpa, credits, r["status"],
+            r["created_at"][:19].replace("T", " "),
         )
     rprint(table)
     input("\n  Press Enter to return to menu…")

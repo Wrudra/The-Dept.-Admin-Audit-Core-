@@ -53,7 +53,7 @@ async def get_token_or_raise(ctx: "Context") -> str:
     token = await get_token(ctx)
     if not token:
         raise RuntimeError(
-            "Not authenticated. Call the `nsu_oauth_start` tool first."
+            "Not authenticated. next_tool: nsu_oauth_start"
         )
     return token
 
@@ -66,9 +66,9 @@ def _handle(resp: httpx.Response) -> Any:
         except Exception:
             detail = resp.text
         if resp.status_code == 401:
-            # Surface the actual backend message so the AI can distinguish
-            # "NSU session expired" from "Drive not authorized", etc.
-            raise RuntimeError(f"Unauthorized: {detail}")
+            raise RuntimeError(
+                f"Session expired or invalid: {detail} — next_tool: nsu_oauth_start"
+            )
         if resp.status_code == 403:
             raise RuntimeError(f"Forbidden: {detail}")
         if resp.status_code == 404:

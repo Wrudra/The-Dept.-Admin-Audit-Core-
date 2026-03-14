@@ -1,4 +1,4 @@
-"""Admin router — aggregate statistics for admin users only."""
+"""Admin router — aggregate statistics and admin-only operations."""
 import uuid
 from datetime import datetime, timezone
 
@@ -85,3 +85,19 @@ async def stats(
         "avg_credits":     avg_credits,
         "recent_runs":     recent_runs,
     }
+
+
+@router.delete("/history/{run_id}", summary="Hard-delete any audit run (admin only)")
+async def admin_delete_run(
+    run_id: uuid.UUID,
+    db:     AsyncSession = Depends(get_db),
+    claims: dict         = Depends(_require_admin),
+) -> dict:
+    """Permanently delete any audit run regardless of owner. Admin only."""
+    result = await db.execute(select(AuditRun).where(AuditRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Audit run not found.")
+    await db.delete(run)
+    await db.commit()
+    return {"deleted": str(run_id)}

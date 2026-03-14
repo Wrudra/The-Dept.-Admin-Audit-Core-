@@ -1,8 +1,8 @@
-"""History router — list, retrieve, and delete past audit runs for the caller."""
+"""History router — list and retrieve past audit runs for the caller."""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.session import get_current_user
@@ -78,21 +78,4 @@ async def get_history_run(
     }
 
 
-@router.delete("/{run_id}", summary="Delete a past audit run")
-async def delete_history_run(
-    run_id:       uuid.UUID,
-    db:           AsyncSession = Depends(get_db),
-    current_user: User         = Depends(get_current_user),
-) -> dict:
-    """Hard-delete a run owned by the caller."""
-    user_id = current_user.id
-    result  = await db.execute(
-        select(AuditRun).where(AuditRun.id == run_id, AuditRun.user_id == user_id)
-    )
-    run = result.scalar_one_or_none()
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found.")
-    await db.delete(run)
-    await db.commit()
-    return {"deleted": str(run_id)}
 

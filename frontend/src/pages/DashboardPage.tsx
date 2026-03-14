@@ -158,6 +158,24 @@ export default function DashboardPage() {
                         }}
                       >
                         <Chip label={r.program} size="small" color="primary" />
+                        <Chip
+                          label={
+                            r.source === "mcp"
+                              ? "MCP"
+                              : r.source === "cli"
+                                ? "CLI"
+                                : "Web"
+                          }
+                          size="small"
+                          color={
+                            r.source === "mcp"
+                              ? "secondary"
+                              : r.source === "cli"
+                                ? "warning"
+                                : "info"
+                          }
+                          variant="outlined"
+                        />
                         <Typography variant="body2" sx={{ flexGrow: 1 }}>
                           {r.transcript_filename ?? "uploaded transcript"}
                         </Typography>
