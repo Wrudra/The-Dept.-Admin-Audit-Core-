@@ -66,6 +66,7 @@ async def run_audit_endpoint(
     program:      str          = Form(...,   description="Program code: CSE or MIC"),
     answers:      str          = Form("{}",  description="JSON object mapping choice keys to values"),
     save:         str          = Form("true", description="Whether to persist the audit run to the database"),
+    source:       str          = Form("web",  description="Submission source: web | mcp"),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ) -> dict:
@@ -136,6 +137,9 @@ async def run_audit_endpoint(
 
     # ── Persist record (skip for discovery / preview calls) ───────────────────
     if do_save:
+        clean_source = source.strip().lower()
+        if clean_source not in ("web", "cli", "mcp"):
+            clean_source = "web"
         run = AuditRun(
             id=uuid.uuid4(),
             user_id=user_id,
@@ -146,6 +150,7 @@ async def run_audit_endpoint(
             completed_at=datetime.now(timezone.utc),
             result_json=result_dict,
             answers_json=answers_dict,
+            source=clean_source,
         )
         db.add(run)
         await db.commit()
@@ -178,6 +183,7 @@ async def get_audit(
         "completed_at":         run.completed_at.isoformat() if run.completed_at else None,
         "result":               run.result_json,
         "answers":              run.answers_json,
+        "source":               run.source or "web",
     }
 
 

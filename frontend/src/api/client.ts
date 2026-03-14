@@ -119,6 +119,7 @@ export interface HistoryRun {
   transcript_filename: string | null;
   created_at: string;
   completed_at: string | null;
+  source: string | null;
   cgpa: number | null;
   credit_completed: number | null;
   required_credits: number | null;

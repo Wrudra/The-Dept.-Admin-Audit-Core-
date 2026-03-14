@@ -178,6 +178,7 @@ def _upload_transcript(
                 "program": program,
                 "answers": json.dumps(answers),
                 "save":    "true" if save else "false",
+                "source":  "mcp",
             },
         )
     return _handle(resp)

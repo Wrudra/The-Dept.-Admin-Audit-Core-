@@ -108,6 +108,24 @@ export default function HistoryPage() {
                       }}
                     >
                       <Chip label={r.program} size="small" color="primary" />
+                      <Chip
+                        label={
+                          r.source === "mcp"
+                            ? "MCP"
+                            : r.source === "cli"
+                              ? "CLI"
+                              : "Web"
+                        }
+                        size="small"
+                        color={
+                          r.source === "mcp"
+                            ? "secondary"
+                            : r.source === "cli"
+                              ? "warning"
+                              : "info"
+                        }
+                        variant="outlined"
+                      />
 
                       <Box sx={{ flexGrow: 1 }}>
                         <Typography variant="body2">

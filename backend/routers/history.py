@@ -39,6 +39,7 @@ async def list_history(
                 "transcript_filename": r.transcript_filename,
                 "created_at":          r.created_at.isoformat(),
                 "completed_at":        r.completed_at.isoformat() if r.completed_at else None,
+                "source":              r.source or "web",
                 # Lightweight summary only — full result at GET /api/audit/{id}
                 "cgpa":                (r.result_json or {}).get("cgpa"),
                 "credit_completed":    (r.result_json or {}).get("credit_completed"),
@@ -71,6 +72,7 @@ async def get_history_run(
         "transcript_filename": run.transcript_filename,
         "created_at":          run.created_at.isoformat(),
         "completed_at":        run.completed_at.isoformat() if run.completed_at else None,
+        "source":              run.source or "web",
         "result":              run.result_json,
         "answers":             run.answers_json,
     }

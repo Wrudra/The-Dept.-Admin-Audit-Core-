@@ -39,3 +39,5 @@ class AuditRun(Base):
     )
     result_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     answers_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # How the audit was submitted: "web" | "mcp"  (nullable for legacy rows)
+    source: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="web")

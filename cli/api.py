@@ -40,6 +40,7 @@ def api_post_multipart(
     program:    str,
     answers:    dict,
     save:       bool = True,
+    source:     str  = "cli",
 ) -> dict:
     """POST a CSV file + metadata to the audit run endpoint."""
     with open(csv_path, "rb") as fh:
@@ -51,6 +52,7 @@ def api_post_multipart(
                     "program": program,
                     "answers": json.dumps(answers),
                     "save":    "true" if save else "false",
+                    "source":  source,
                 },
                 headers={"Authorization": f"Bearer {token}"},
             )
