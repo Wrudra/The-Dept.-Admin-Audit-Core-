@@ -42,3 +42,6 @@ pg_data/
 .env
 .env.local
 .env.*.local
+
+# mcp json
+opencode-mcp.json
