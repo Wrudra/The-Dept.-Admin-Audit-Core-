@@ -45,3 +45,22 @@ pg_data/
 
 # mcp json
 opencode-mcp.json
+
+# Database and migrations
+alembic.ini
+*.db
+*.sqlite
+*.sqlite3
+pg_data/
+
+# Logs
+*.log
+logs/
+
+# Large binary files / PII (Student Transcripts)
+Transcript.pdf
+
+# Local / Temporary files
+.DS_Store
+*.tmp
+*.bak
