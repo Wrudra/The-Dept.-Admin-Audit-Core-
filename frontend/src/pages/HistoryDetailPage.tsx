@@ -6,6 +6,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import { useNavigate, useParams } from "react-router-dom";
 import { auditApi, AuditResult } from "../api/client";
 import AuditReport from "../components/AuditReport";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 
 export default function HistoryDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -107,7 +108,9 @@ export default function HistoryDetailPage() {
           </Box>
         </Box>
 
-        <AuditReport result={result} />
+        <ErrorBoundary>
+          <AuditReport result={result} />
+        </ErrorBoundary>
       </Box>
     </Fade>
   );

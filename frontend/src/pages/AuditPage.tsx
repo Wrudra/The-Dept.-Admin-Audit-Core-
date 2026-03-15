@@ -36,6 +36,7 @@ import {
   AuditChoicePick,
 } from "../api/client";
 import AuditReport from "../components/AuditReport";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 
 type Answers = Record<string, boolean | string>;
 
@@ -956,12 +957,20 @@ export default function AuditPage() {
                 </Button>
               </Box>
 
-              <AuditReport result={result} />
+              <ErrorBoundary>
+                <AuditReport result={result} />
+              </ErrorBoundary>
 
               <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
                 <Button
                   variant="outlined"
                   onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Start a new audit? This will clear your current result.",
+                      )
+                    )
+                      return;
                     setStep(0);
                     setResult(null);
                     setFile(null);

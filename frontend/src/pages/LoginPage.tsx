@@ -1,17 +1,7 @@
 import { useSearchParams } from "react-router-dom";
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Collapse,
-  Grow,
-  Typography,
-} from "@mui/material";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { Box, Button, Typography } from "@mui/material";
 import GoogleIcon from "@mui/icons-material/Google";
-import SchoolIcon from "@mui/icons-material/School";
+import { SERIF, SANS } from "../theme";
 
 const ERROR_MESSAGES: Record<string, string> = {
   domain:
@@ -21,7 +11,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   session: "Session expired during login. Please try again.",
 };
 
-/** Public login page — clicking "Sign in" redirects the browser to the
+/** Public login page — clicking the button redirects the browser to the
  *  backend's /api/auth/login endpoint, which triggers the Google PKCE flow. */
 export default function LoginPage() {
   const [params] = useSearchParams();
@@ -32,66 +22,84 @@ export default function LoginPage() {
     <Box
       sx={{
         minHeight: "100vh",
-        background:
-          "linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%)",
+        bgcolor: "background.default",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
+        px: 3,
       }}
     >
-      <Grow in timeout={500}>
-        <Card sx={{ maxWidth: 420, width: "100%", mx: 2, boxShadow: 8 }}>
-          <CardContent sx={{ p: 4, textAlign: "center" }}>
-            <SchoolIcon sx={{ fontSize: 48, color: "primary.main", mb: 1 }} />
-            <Typography variant="h5" gutterBottom fontWeight={700}>
-              NSU Audit
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Sign in with your North South University email to continue.
-            </Typography>
+      <Box sx={{ textAlign: "center", maxWidth: 400, width: "100%" }}>
+        {/* Section label */}
+        <Typography variant="overline" color="text.secondary">
+          Student Portal
+        </Typography>
 
-            <Collapse in={!!errorMsg} unmountOnExit>
-              <Alert
-                severity="error"
-                icon={<ErrorOutlineIcon />}
-                sx={{
-                  mb: 3,
-                  textAlign: "left",
-                  borderRadius: 2,
-                  "& .MuiAlert-message": { fontWeight: 500 },
-                }}
-              >
-                {errorMsg}
-              </Alert>
-            </Collapse>
+        {/* Headline */}
+        <Typography
+          sx={{
+            fontFamily: SERIF,
+            fontSize: "clamp(40px, 8vw, 64px)",
+            lineHeight: 1.1,
+            color: "text.primary",
+            mt: 1,
+            mb: 5,
+          }}
+        >
+          Sign in to
+          <br />
+          <em>your audit.</em>
+        </Typography>
 
-            <Button
-              variant="contained"
-              size="large"
-              fullWidth
-              startIcon={<GoogleIcon />}
-              href="/api/auth/login"
-              sx={{
-                py: 1.5,
-                textTransform: "none",
-                fontSize: "1rem",
-                transition: "transform 0.15s",
-                "&:hover": { transform: "translateY(-2px)" },
-              }}
-            >
-              Sign in with Google
-            </Button>
+        {/* Google button */}
+        <Button
+          fullWidth
+          component="a"
+          href="/api/auth/login"
+          startIcon={<GoogleIcon />}
+          sx={{
+            bgcolor: "text.primary",
+            color: "background.default",
+            border: "1px solid",
+            borderColor: "text.primary",
+            borderRadius: "6px",
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            fontSize: "0.8125rem",
+            fontWeight: 300,
+            fontFamily: SANS,
+            py: 1.5,
+            "& .MuiButton-startIcon": { color: "inherit" },
+            "&:hover": {
+              bgcolor: "#e8e5e0",
+              color: "background.default",
+              borderColor: "#e8e5e0",
+            },
+          }}
+        >
+          Continue with Google
+        </Button>
 
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 3 }}
-            >
-              Only <strong>@northsouth.edu</strong> accounts are permitted.
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grow>
+        {/* Error message */}
+        {errorMsg && (
+          <Typography
+            variant="caption"
+            sx={{ display: "block", mt: 2, color: "error.main" }}
+          >
+            {errorMsg}
+          </Typography>
+        )}
+
+        {/* Footer */}
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mt: 4 }}
+        >
+          North South University · Degree Audit System
+        </Typography>
+      </Box>
     </Box>
   );
 }

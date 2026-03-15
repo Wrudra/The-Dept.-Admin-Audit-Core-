@@ -1,5 +1,4 @@
 import {
-  Alert,
   Box,
   Card,
   CardContent,
@@ -15,9 +14,9 @@ import {
   Typography,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import CancelIcon from "@mui/icons-material/Cancel";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AuditResult, CourseDetail, MinorProgram } from "../api/client";
+import { SERIF } from "../theme";
 
 interface Props {
   result: AuditResult;
@@ -36,14 +35,13 @@ function Stat({
 }) {
   return (
     <Box sx={{ minWidth: 100 }}>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ lineHeight: 1.2 }}
-      >
+      <Typography variant="overline" color="text.secondary" sx={{ display: "block" }}>
         {label}
       </Typography>
-      <Typography variant="h6" sx={{ lineHeight: 1.3 }}>
+      <Typography
+        variant="h6"
+        sx={{ lineHeight: 1.2, fontFamily: SERIF, mt: 0.25 }}
+      >
         {value}
       </Typography>
       {sub && (
@@ -68,7 +66,7 @@ function SectionCard({
     <Grow in timeout={timeout}>
       <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+          <Typography variant="overline" color="text.secondary" gutterBottom>
             {title}
           </Typography>
           <Divider sx={{ mb: 1.5 }} />
@@ -97,12 +95,7 @@ function CourseTable({
         <TableHead>
           <TableRow>
             {columns.map((c) => (
-              <TableCell
-                key={c.key}
-                sx={{ fontWeight: 700, bgcolor: "background.paper" }}
-              >
-                {c.label}
-              </TableCell>
+              <TableCell key={c.key}>{c.label}</TableCell>
             ))}
           </TableRow>
         </TableHead>
@@ -117,12 +110,7 @@ function CourseTable({
                   return (
                     <TableCell key={c.key}>
                       {row.counted && row.label ? (
-                        <Chip
-                          label={val}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
+                        <Chip label={val} size="small" color="primary" />
                       ) : (
                         <Typography
                           variant="body2"
@@ -182,39 +170,80 @@ export default function AuditReport({ result }: Props) {
   const countedRows = per_course_detail.filter((r) => r.counted);
   const notCountedRows = per_course_detail.filter((r) => !r.counted);
 
-  // ── Graduation banner ──────────────────────────────────────────────────────
-  const bannerSeverity = eligible ? "success" : probation ? "error" : "warning";
-  const bannerIcon = eligible ? (
-    <CheckCircleIcon />
-  ) : probation ? (
-    <CancelIcon />
-  ) : (
-    <WarningAmberIcon />
-  );
-  const bannerMsg = eligible
-    ? `Eligible for graduation — ${credit_completed} / ${required_credits} credits completed.`
+  const statusColor = eligible
+    ? "success.main"
+    : probation
+      ? "error.main"
+      : "warning.main";
+
+  const statusText = eligible ? "Eligible" : "Not Eligible";
+  const statusSub = eligible
+    ? "for graduation"
     : deficiency?.credit_shortfall
-      ? `Not eligible — ${deficiency.credit_shortfall.toFixed(1)} credit(s) below the required ${required_credits}.`
-      : `${credit_completed} / ${required_credits} credits — ${(required_credits - credit_completed).toFixed(1)} remaining.`;
+      ? `${deficiency.credit_shortfall.toFixed(1)} credit(s) below required ${required_credits}`
+      : "requirements not met";
 
   return (
     <Box>
-      {/* 1. Graduation banner */}
-      <Alert severity={bannerSeverity} icon={bannerIcon} sx={{ mb: 3 }}>
-        <strong>{eligible ? "ELIGIBLE FOR GRADUATION" : "NOT ELIGIBLE"}</strong>
-        {" — "}
-        {bannerMsg}
-      </Alert>
+      {/* 1. Typographic eligibility band */}
+      <Box
+        sx={{
+          borderTop: "1px solid",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          py: 4,
+          mb: 3,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 3,
+          flexWrap: "wrap",
+        }}
+      >
+        <Box>
+          <Typography
+            sx={{
+              fontFamily: SERIF,
+              fontStyle: "italic",
+              fontSize: "clamp(32px, 6vw, 52px)",
+              color: statusColor,
+              lineHeight: 1,
+            }}
+          >
+            {statusText}
+          </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mt: 0.75 }}
+          >
+            {statusSub}
+          </Typography>
+        </Box>
+        <Box sx={{ textAlign: { xs: "left", sm: "right" } }}>
+          <Typography variant="overline" color="text.secondary">
+            CGPA
+          </Typography>
+          <Typography
+            variant="h4"
+            sx={{ fontFamily: SERIF, lineHeight: 1.1 }}
+          >
+            {cgpa.toFixed(2)}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {credit_completed} / {required_credits} credits
+          </Typography>
+        </Box>
+      </Box>
 
       {/* 2. Summary */}
       <Grow in timeout={300}>
         <Card sx={{ mb: 2 }}>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
+            <Typography variant="overline" color="text.secondary" gutterBottom>
               Summary
             </Typography>
             <Divider sx={{ mb: 2 }} />
-            {/* Top row: Program / CGPA / Standing */}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2 }}>
               <Stat label="Program" value={program} />
               <Stat
@@ -238,7 +267,6 @@ export default function AuditReport({ result }: Props) {
                 />
               )}
             </Box>
-            {/* Credit breakdown row */}
             {(credit_passed != null || credit_counted != null) && (
               <>
                 <Divider sx={{ mb: 1.5 }} />
@@ -272,14 +300,13 @@ export default function AuditReport({ result }: Props) {
               sx={{
                 mb: 2,
                 border: "1px solid",
-                borderColor: "warning.dark",
-                bgcolor: "rgba(255,152,0,0.04)",
+                borderColor: "warning.main",
+                bgcolor: "rgba(220,180,100,0.04)",
               }}
             >
               <CardContent>
                 <Typography
-                  variant="subtitle1"
-                  fontWeight={600}
+                  variant="overline"
                   color="warning.main"
                   gutterBottom
                 >
@@ -288,10 +315,21 @@ export default function AuditReport({ result }: Props) {
                 <Divider sx={{ mb: 1.5 }} />
 
                 {deficiency.probation && (
-                  <Alert severity="error" sx={{ mb: 1.5 }}>
-                    CGPA Probation — CGPA is below the 2.0 minimum required for
-                    graduation.
-                  </Alert>
+                  <Box
+                    sx={{
+                      mb: 1.5,
+                      p: 1.5,
+                      border: "1px solid",
+                      borderColor: "error.main",
+                      borderRadius: "2px",
+                      color: "error.main",
+                    }}
+                  >
+                    <Typography variant="body2">
+                      CGPA Probation — CGPA is below the 2.0 minimum required
+                      for graduation.
+                    </Typography>
+                  </Box>
                 )}
 
                 {deficiency.credit_shortfall > 0 && (
@@ -306,21 +344,15 @@ export default function AuditReport({ result }: Props) {
                   <Box key={category} sx={{ mb: 1 }}>
                     <Typography
                       variant="body2"
-                      fontWeight={600}
                       color="text.secondary"
+                      fontWeight={400}
                       gutterBottom
                     >
                       {category}
                     </Typography>
                     <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
                       {courses.map((c) => (
-                        <Chip
-                          key={c}
-                          label={c}
-                          size="small"
-                          color="warning"
-                          variant="outlined"
-                        />
+                        <Chip key={c} label={c} size="small" color="warning" />
                       ))}
                     </Box>
                   </Box>
@@ -335,7 +367,7 @@ export default function AuditReport({ result }: Props) {
         <Grow in timeout={450}>
           <Card sx={{ mb: 2 }}>
             <CardContent>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+              <Typography variant="overline" color="text.secondary" gutterBottom>
                 Waivers
               </Typography>
               {waiver_notes.length > 0 && (
@@ -364,10 +396,10 @@ export default function AuditReport({ result }: Props) {
         <Grow in timeout={520}>
           <Card sx={{ mb: 2 }}>
             <CardContent>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+              <Typography variant="overline" color="text.secondary" gutterBottom>
                 Selected Electives
               </Typography>
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
                 {major_electives.map((c) => (
                   <Chip key={c} label={c} size="small" color="primary" />
                 ))}
@@ -390,9 +422,9 @@ export default function AuditReport({ result }: Props) {
       {/* 5b. Minor Programs */}
       {minor_programs && minor_programs.length > 0 && (
         <Grow in timeout={560}>
-          <Card variant="outlined">
+          <Card variant="outlined" sx={{ mb: 2 }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="overline" color="text.secondary" gutterBottom>
                 Minor Program(s) Detected
               </Typography>
               {minor_programs.map((mp: MinorProgram) => (
@@ -410,7 +442,7 @@ export default function AuditReport({ result }: Props) {
                     ) : (
                       <WarningAmberIcon color="warning" fontSize="small" />
                     )}
-                    <Typography variant="subtitle1" fontWeight={600}>
+                    <Typography variant="subtitle1">
                       {mp.name}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -479,7 +511,7 @@ export default function AuditReport({ result }: Props) {
       {/* 6. Courses counted table */}
       {countedRows.length > 0 && (
         <SectionCard
-          title={`Courses Counted (${countedRows.length} courses)`}
+          title={`Courses Counted — ${countedRows.length}`}
           timeout={590}
         >
           <CourseTable
@@ -497,7 +529,7 @@ export default function AuditReport({ result }: Props) {
       {/* 7. Courses not counted table */}
       {notCountedRows.length > 0 && (
         <SectionCard
-          title={`Courses Not Counted (${notCountedRows.length} entries)`}
+          title={`Courses Not Counted — ${notCountedRows.length}`}
           timeout={660}
         >
           <CourseTable
@@ -511,17 +543,20 @@ export default function AuditReport({ result }: Props) {
         </SectionCard>
       )}
 
-      {/* 8. Prerequisite failures (dedicated card, shown if no per_course_detail) */}
+      {/* 8. Prerequisite failures fallback (legacy results without per_course_detail) */}
       {notCountedRows.length === 0 &&
         Object.keys(prereq_failures).length > 0 && (
           <Grow in timeout={660}>
             <Card
-              sx={{ mb: 2, border: "1px solid", borderColor: "error.dark" }}
+              sx={{
+                mb: 2,
+                border: "1px solid",
+                borderColor: "error.main",
+              }}
             >
               <CardContent>
                 <Typography
-                  variant="subtitle1"
-                  fontWeight={600}
+                  variant="overline"
                   color="error.main"
                   gutterBottom
                 >

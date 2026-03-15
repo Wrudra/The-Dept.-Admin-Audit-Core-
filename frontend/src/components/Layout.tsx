@@ -1,140 +1,264 @@
+import { useState } from "react";
 import { Outlet, NavLink } from "react-router-dom";
-import {
-  Box,
-  Drawer,
-  Fade,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Typography,
-} from "@mui/material";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import AssignmentIcon from "@mui/icons-material/Assignment";
-import HistoryIcon from "@mui/icons-material/History";
-import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
-import LogoutIcon from "@mui/icons-material/Logout";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import { Box, useMediaQuery, useTheme } from "@mui/material";
 import { useAuthStore } from "../store/authStore";
-
-const DRAWER_W = 220;
+import { SERIF, SANS } from "../theme";
 
 const NAV = [
-  { label: "Dashboard", path: "/dashboard", icon: <DashboardIcon /> },
-  { label: "New Audit", path: "/audit", icon: <AssignmentIcon /> },
-  { label: "History", path: "/history", icon: <HistoryIcon /> },
+  { label: "Dashboard", path: "/dashboard" },
+  { label: "New Audit", path: "/audit" },
+  { label: "History", path: "/history" },
 ];
+
+const NAV_LINK_BASE = {
+  fontSize: "0.6875rem",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase" as const,
+  textDecoration: "none",
+  fontFamily: SANS,
+  fontWeight: 300,
+  transition: "color 0.2s",
+} as const;
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
+  const allNavItems = [
+    ...NAV,
+    ...(user?.is_admin ? [{ label: "Admin", path: "/admin" }] : []),
+  ];
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      {/* ── Side nav ──────────────────────────────────────────────────────── */}
-      <Drawer
-        variant="permanent"
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+      {/* ── Fixed top navbar ─────────────────────────────────────────────────── */}
+      <Box
+        component="nav"
         sx={{
-          width: DRAWER_W,
-          flexShrink: 0,
-          "& .MuiDrawer-paper": {
-            width: DRAWER_W,
-            boxSizing: "border-box",
-            bgcolor: "background.paper",
-            borderRight: "1px solid rgba(255,255,255,0.08)",
-          },
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          height: 56,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.default",
+          display: "flex",
+          alignItems: "center",
+          px: { xs: 2, md: 6 },
+          justifyContent: "space-between",
         }}
       >
-        <Toolbar sx={{ justifyContent: "center" }}>
-          <Typography
-            variant="h6"
-            color="primary"
-            sx={{ fontWeight: 700, letterSpacing: 1 }}
-          >
-            NSU Audit
-          </Typography>
-        </Toolbar>
+        {/* Logo */}
+        <Box
+          component={NavLink as React.ElementType}
+          to="/dashboard"
+          sx={{
+            fontFamily: SERIF,
+            fontStyle: "italic",
+            fontSize: "1.125rem",
+            color: "text.primary",
+            textDecoration: "none",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          NSU Audit
+        </Box>
 
-        <List sx={{ flexGrow: 1, pt: 0 }}>
-          {NAV.map(({ label, path, icon }, i) => (
-            <Fade key={path} in timeout={300 + i * 80}>
-              <ListItemButton
-                component={NavLink}
+        {/* Desktop nav links */}
+        {!isMobile && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {allNavItems.map(({ label, path }) => (
+              <Box
+                key={path}
+                component={NavLink as React.ElementType}
                 to={path}
                 sx={{
-                  "&.active": { bgcolor: "action.selected" },
-                  "&:hover": { bgcolor: "action.hover" },
-                  borderRadius: 1,
-                  mx: 1,
-                  mb: 0.5,
-                  transition: "background-color 0.2s",
+                  ...NAV_LINK_BASE,
+                  color: "text.disabled",
+                  "&:hover": { color: "text.primary" },
+                  "&.active": {
+                    color: "text.primary",
+                    borderBottom: "1px solid",
+                    borderColor: "text.primary",
+                    paddingBottom: "2px",
+                  },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: 36, color: "primary.main" }}>
-                  {icon}
-                </ListItemIcon>
-                <ListItemText primary={label} />
-              </ListItemButton>
-            </Fade>
-          ))}
+                {label}
+              </Box>
+            ))}
 
-          {user?.is_admin && (
-            <Fade in timeout={620}>
-              <ListItemButton
-                component={NavLink}
-                to="/admin"
-                sx={{
-                  "&.active": { bgcolor: "action.selected" },
-                  "&:hover": { bgcolor: "action.hover" },
-                  borderRadius: 1,
-                  mx: 1,
-                  mb: 0.5,
-                  transition: "background-color 0.2s",
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 36, color: "warning.main" }}>
-                  <AdminPanelSettingsIcon />
-                </ListItemIcon>
-                <ListItemText primary="Admin" />
-              </ListItemButton>
-            </Fade>
-          )}
-        </List>
-
-        {/* User info + logout */}
-        <Box sx={{ p: 2, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-            <AccountCircleIcon fontSize="small" color="disabled" />
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {user?.email}
-            </Typography>
+            <Box
+              component="button"
+              onClick={logout}
+              sx={{
+                ...NAV_LINK_BASE,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "text.disabled",
+                padding: 0,
+                "&:hover": { color: "error.main" },
+              }}
+            >
+              Logout
+            </Box>
           </Box>
-          <ListItemButton
-            onClick={logout}
-            sx={{ borderRadius: 1, color: "error.main", p: "4px 8px" }}
-          >
-            <ListItemIcon sx={{ minWidth: 32, color: "error.main" }}>
-              <LogoutIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText
-              primary="Logout"
-              primaryTypographyProps={{ variant: "body2" }}
-            />
-          </ListItemButton>
-        </Box>
-      </Drawer>
+        )}
 
-      {/* ── Main content ──────────────────────────────────────────────────── */}
+        {/* Mobile hamburger */}
+        {isMobile && (
+          <Box
+            component="button"
+            aria-label="Open navigation menu"
+            onClick={() => setMenuOpen(true)}
+            sx={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              gap: "5px",
+              p: 1,
+            }}
+          >
+            <Box sx={{ width: 22, height: "1px", bgcolor: "text.secondary" }} />
+            <Box sx={{ width: 22, height: "1px", bgcolor: "text.secondary" }} />
+            <Box sx={{ width: 22, height: "1px", bgcolor: "text.secondary" }} />
+          </Box>
+        )}
+      </Box>
+
+      {/* ── Mobile full-screen overlay nav ──────────────────────────────────── */}
+      {menuOpen && (
+        <Box
+          sx={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 200,
+            bgcolor: "background.default",
+            display: "flex",
+            flexDirection: "column",
+            px: 4,
+            py: 4,
+            overflowY: "auto",
+          }}
+        >
+          {/* Overlay header */}
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 6,
+            }}
+          >
+            <Box
+              sx={{
+                fontFamily: SERIF,
+                fontStyle: "italic",
+                fontSize: "1.125rem",
+                color: "text.primary",
+              }}
+            >
+              NSU Audit
+            </Box>
+            <Box
+              component="button"
+              aria-label="Close navigation menu"
+              onClick={() => setMenuOpen(false)}
+              sx={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "text.secondary",
+                fontSize: "1.5rem",
+                lineHeight: 1,
+                p: 0.5,
+                "&:hover": { color: "text.primary" },
+              }}
+            >
+              ×
+            </Box>
+          </Box>
+
+          {/* Large serif nav links */}
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+            {allNavItems.map(({ label, path }) => (
+              <Box
+                key={path}
+                component={NavLink as React.ElementType}
+                to={path}
+                onClick={() => setMenuOpen(false)}
+                sx={{
+                  fontFamily: SERIF,
+                  fontSize: "clamp(28px, 8vw, 48px)",
+                  textDecoration: "none",
+                  color: "text.disabled",
+                  lineHeight: 1.15,
+                  transition: "color 0.2s",
+                  "&:hover, &.active": { color: "text.primary" },
+                }}
+              >
+                {label}
+              </Box>
+            ))}
+          </Box>
+
+          {/* User info + logout at bottom */}
+          <Box sx={{ mt: "auto", pt: 4, borderTop: "1px solid", borderColor: "divider" }}>
+            <Box
+              sx={{
+                fontSize: "0.6875rem",
+                color: "text.disabled",
+                fontFamily: SANS,
+                mb: 1.5,
+              }}
+            >
+              {user?.email}
+            </Box>
+            <Box
+              component="button"
+              onClick={logout}
+              sx={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                ...NAV_LINK_BASE,
+                color: "error.main",
+                padding: 0,
+                "&:hover": { color: "error.light" },
+              }}
+            >
+              Logout
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* ── Main content ──────────────────────────────────────────────────────── */}
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
-          p: 3,
+          pt: "56px",
+          minHeight: "100vh",
           bgcolor: "background.default",
-          overflowY: "auto",
         }}
       >
-        <Outlet />
+        <Box
+          sx={{
+            maxWidth: 1200,
+            margin: "0 auto",
+            px: { xs: 2, sm: 3, md: 6 },
+            py: { xs: 4, md: 6 },
+          }}
+        >
+          <Outlet />
+        </Box>
       </Box>
     </Box>
   );
