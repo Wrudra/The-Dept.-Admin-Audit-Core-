@@ -66,3 +66,17 @@ TranscriptMIC2.jpeg
 .DS_Store
 *.tmp
 *.bak
+
+# Xcode / iOS
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM

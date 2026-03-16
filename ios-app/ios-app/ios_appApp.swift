@@ -2,16 +2,33 @@
 //  ios_appApp.swift
 //  ios-app
 //
-//  Created by Tahsinul Haque Wrudra on 17/3/26.
-//
 
 import SwiftUI
 
 @main
 struct ios_appApp: App {
+    @StateObject private var auth = AuthService.shared
+
+    init() {
+        APIClient.shared.onUnauthorized = {
+            Task { @MainActor in
+                AuthService.shared.logout()
+            }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if auth.token != nil {
+                    MainView()
+                } else {
+                    LoginView()
+                }
+            }
+            .onAppear {
+                auth.refreshFromKeychain()
+            }
         }
     }
 }

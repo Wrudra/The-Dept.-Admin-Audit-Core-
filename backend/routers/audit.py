@@ -138,7 +138,7 @@ async def run_audit_endpoint(
     # ── Persist record (skip for discovery / preview calls) ───────────────────
     if do_save:
         clean_source = source.strip().lower()
-        if clean_source not in ("web", "cli", "mcp"):
+        if clean_source not in ("web", "cli", "mcp", "ios"):
             clean_source = "web"
         run = AuditRun(
             id=uuid.uuid4(),
