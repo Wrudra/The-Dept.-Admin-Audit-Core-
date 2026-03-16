@@ -59,6 +59,8 @@ logs/
 
 # Large binary files / PII (Student Transcripts)
 Transcript.pdf
+TranscriptMIC.jpeg
+TranscriptMIC2.jpeg
 
 # Local / Temporary files
 .DS_Store
