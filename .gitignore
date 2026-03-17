@@ -69,3 +69,4 @@ TranscriptMIC2.jpeg
 
 # ios app
 ios-app/ios-app.xcodeproj/
+ios-app/ios-app/Info.plist

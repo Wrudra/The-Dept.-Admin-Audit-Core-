@@ -11,6 +11,7 @@ struct ProfileView: View {
     let user: User?
     let onLogout: () -> Void
     @State private var loadedUser: User?
+    @State private var loadError: String?
 
     var body: some View {
         NavigationStack {
@@ -25,6 +26,25 @@ struct ProfileView: View {
                         Text(u.email)
                             .font(.system(size: 14, weight: .light))
                             .foregroundStyle(Theme.textMuted)
+                    }
+                    .padding(.vertical, 16)
+                } else if let err = loadError {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Couldn’t load account.")
+                            .font(.system(size: 14, weight: .light))
+                            .foregroundStyle(Theme.textPrimary)
+                        Text(err)
+                            .font(.system(size: 12, weight: .light))
+                            .foregroundStyle(Theme.textMuted)
+                            .lineLimit(3)
+                        Button {
+                            reload()
+                        } label: {
+                            Text("Try again")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.vertical, 16)
                 } else {
@@ -56,11 +76,19 @@ struct ProfileView: View {
                 }
             }
             .onAppear {
-                if loadedUser == nil {
-                    Task {
-                        loadedUser = try? await APIClient.shared.me()
-                    }
-                }
+                if loadedUser == nil { reload() }
+            }
+        }
+    }
+
+    private func reload() {
+        loadError = nil
+        Task {
+            do {
+                loadedUser = try await APIClient.shared.me()
+            } catch {
+                loadedUser = nil
+                loadError = error.localizedDescription
             }
         }
     }

@@ -11,6 +11,7 @@ struct DashboardView: View {
     let user: User?
     @State private var runs: [HistoryRun] = []
     @State private var loading = true
+    @State private var loadError: String?
 
     var body: some View {
         NavigationStack {
@@ -41,6 +42,25 @@ struct DashboardView: View {
 
                     if loading {
                         ProgressView().padding(.vertical, 24)
+                    } else if let err = loadError {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Couldn’t load recent runs.")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(err)
+                                .font(.system(size: 12, weight: .light))
+                                .foregroundStyle(Theme.textMuted)
+                                .lineLimit(3)
+                            Button {
+                                loadRuns()
+                            } label: {
+                                Text("Try again")
+                                    .font(.system(size: 14, weight: .light))
+                                    .foregroundStyle(Theme.textPrimary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 20)
                     } else if runs.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No audit runs yet.")
@@ -78,18 +98,28 @@ struct DashboardView: View {
                 }
             }
             .onAppear { loadRuns() }
+            .refreshable { loadRuns() }
         }
     }
 
     private func loadRuns() {
         Task {
+            await MainActor.run {
+                loading = true
+                loadError = nil
+            }
             do {
                 let resp = try await APIClient.shared.historyList(limit: 5, offset: 0)
-                runs = resp.runs
+                await MainActor.run {
+                    runs = resp.runs
+                }
             } catch {
-                runs = []
+                await MainActor.run {
+                    runs = []
+                    loadError = error.localizedDescription
+                }
             }
-            loading = false
+            await MainActor.run { loading = false }
         }
     }
 }
@@ -135,28 +165,31 @@ private struct QuickActionRow: View {
 private struct HistoryRowView: View {
     let run: HistoryRun
     var body: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Chip(text: run.program, primary: true)
-                Chip(text: run.source ?? "ios", primary: false)
+                Chip(text: (run.source ?? "ios").uppercased(), primary: false)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .light))
+                    .foregroundStyle(Theme.textMuted)
             }
             Text(run.transcript_filename ?? "uploaded transcript")
                 .font(.system(size: 14, weight: .light))
-                .foregroundStyle(Theme.textMuted)
+                .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer()
-            if let cgpa = run.cgpa {
-                Text(String(format: "CGPA %.2f", cgpa))
+            HStack(spacing: 10) {
+                if let cgpa = run.cgpa {
+                    Text(String(format: "CGPA %.2f", cgpa))
+                        .font(.system(size: 11, weight: .light))
+                        .foregroundStyle(Theme.textMuted)
+                }
+                Text(formatDate(run.created_at))
                     .font(.system(size: 11, weight: .light))
                     .foregroundStyle(Theme.textMuted)
+                Spacer()
             }
-            Text(formatDate(run.created_at))
-                .font(.system(size: 11, weight: .light))
-                .foregroundStyle(Theme.textMuted)
-            Image(systemName: "arrow.right")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.textMuted)
         }
         .padding(.vertical, 14)
         Rectangle().fill(Theme.line).frame(height: 1)
@@ -175,6 +208,10 @@ struct Chip: View {
         Text(text)
             .font(.system(size: 11, weight: .light))
             .tracking(0.08)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .allowsTightening(true)
+            .minimumScaleFactor(0.85)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(Theme.surface)

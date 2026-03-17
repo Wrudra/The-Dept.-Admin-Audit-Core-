@@ -13,6 +13,7 @@ struct HistoryListView: View {
     @State private var loadingMore = false
     @State private var offset = 0
     @State private var hasMore = false
+    @State private var loadError: String?
     private let limit = 20
 
     var body: some View {
@@ -36,20 +37,47 @@ struct HistoryListView: View {
 
                     if loading {
                         ProgressView().frame(maxWidth: .infinity).padding(.vertical, 32)
-                    } else if runs.isEmpty {
-                        Text("No past audits.")
-                            .font(.system(size: 14, weight: .light))
-                            .foregroundStyle(Theme.textMuted)
-                            .padding(.vertical, 24)
-                    } else {
-                        ForEach(runs, id: \.run_id) { r in
-                            NavigationLink {
-                                AuditResultView(runId: r.run_id)
+                    } else if let err = loadError {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Couldn’t load history.")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(err)
+                                .font(.system(size: 12, weight: .light))
+                                .foregroundStyle(Theme.textMuted)
+                                .lineLimit(3)
+                            Button {
+                                loadFirst()
                             } label: {
-                                HistoryListRow(run: r)
+                                Text("Try again")
+                                    .font(.system(size: 14, weight: .light))
+                                    .foregroundStyle(Theme.textPrimary)
                             }
                             .buttonStyle(.plain)
                         }
+                        .padding(.vertical, 24)
+                    } else if runs.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("No past audits yet.")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text("Run your first audit from the New Audit tab.")
+                                .font(.system(size: 12, weight: .light))
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                        .padding(.vertical, 24)
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            ForEach(runs, id: \.run_id) { r in
+                                NavigationLink {
+                                    AuditResultView(runId: r.run_id)
+                                } label: {
+                                    HistoryListRow(run: r)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 14)
                         if hasMore {
                             Button {
                                 loadMore()
@@ -78,11 +106,13 @@ struct HistoryListView: View {
                 }
             }
             .onAppear { loadFirst() }
+            .refreshable { loadFirst() }
         }
     }
 
     private func loadFirst() {
         loading = true
+        loadError = nil
         Task {
             do {
                 let resp = try await APIClient.shared.historyList(limit: limit + 1, offset: 0)
@@ -96,6 +126,7 @@ struct HistoryListView: View {
                 }
             } catch {
                 runs = []
+                loadError = error.localizedDescription
             }
             loading = false
         }
@@ -123,33 +154,57 @@ struct HistoryListView: View {
 private struct HistoryListRow: View {
     let run: HistoryRun
     var body: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Chip(text: run.program, primary: true)
-                Chip(text: run.source ?? "ios", primary: false)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(run.transcript_filename ?? "uploaded transcript")
-                    .font(.system(size: 14, weight: .light))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(run.created_at.replacingOccurrences(of: "T", with: " ").prefix(19).description)
-                    .font(.system(size: 11, weight: .light))
+                Chip(text: (run.source ?? "ios").uppercased(), primary: false)
+                Spacer()
+                Chip(text: statusLabel(run.status), primary: run.status == "complete")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .light))
                     .foregroundStyle(Theme.textMuted)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if let cgpa = run.cgpa {
-                Text(String(format: "%.2f", cgpa))
+
+            Text(run.transcript_filename ?? "uploaded transcript")
+                .font(.system(size: 14, weight: .light))
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            HStack(spacing: 10) {
+                Text(formatDateTime(run.created_at))
                     .font(.system(size: 11, weight: .light))
                     .foregroundStyle(Theme.textMuted)
+                if let cgpa = run.cgpa {
+                    Text(String(format: "CGPA %.2f", cgpa))
+                        .font(.system(size: 11, weight: .light))
+                        .foregroundStyle(Theme.textMuted)
+                }
+                Spacer()
             }
-            Chip(text: run.status, primary: run.status == "complete")
-            Image(systemName: "arrow.right")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.textMuted)
         }
-        .padding(.vertical, 14)
-        Rectangle().fill(Theme.line).frame(height: 1)
+        .padding(14)
+        .background(Theme.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Theme.line, lineWidth: 1)
+        )
+    }
+
+    private func formatDateTime(_ iso: String) -> String {
+        // ISO8601 from backend; display yyyy-mm-dd hh:mm:ss when possible.
+        let s = iso.replacingOccurrences(of: "T", with: " ")
+        if s.count >= 19 { return String(s.prefix(19)) }
+        if s.count >= 10 { return String(s.prefix(10)) }
+        return iso
+    }
+
+    private func statusLabel(_ status: String) -> String {
+        let s = status.lowercased()
+        if s == "complete" { return "DONE" }
+        if s == "running" { return "RUNNING" }
+        if s == "failed" { return "FAILED" }
+        return s.uppercased()
     }
 }
 

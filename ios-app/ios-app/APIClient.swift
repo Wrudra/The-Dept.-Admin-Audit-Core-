@@ -38,13 +38,12 @@ final class APIClient {
     func token() -> String? { AuthService.shared.currentToken() }
 
     private func request(
-        path: String,
+        url: URL,
         method: String = "GET",
         body: Data? = nil,
         contentType: String? = "application/json",
         formBoundary: String? = nil
     ) async throws -> (Data, HTTPURLResponse) {
-        let url = base.appendingPathComponent(path)
         var req = URLRequest(url: url)
         req.httpMethod = method
         if let t = token() {
@@ -71,6 +70,17 @@ final class APIClient {
         return (data, http)
     }
 
+    private func request(
+        path: String,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = "application/json",
+        formBoundary: String? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let url = base.appendingPathComponent(path)
+        return try await request(url: url, method: method, body: body, contentType: contentType, formBoundary: formBoundary)
+    }
+
     func me() async throws -> User {
         let (data, _) = try await request(path: "api/auth/me")
         return try JSONDecoder().decode(User.self, from: data)
@@ -78,8 +88,12 @@ final class APIClient {
 
     func historyList(limit: Int = 20, offset: Int = 0) async throws -> HistoryListResponse {
         var comp = URLComponents(url: base.appendingPathComponent("api/history/"), resolvingAgainstBaseURL: false)!
-        comp.queryItems = [URLQueryItem(name: "limit", value: "\(limit)"), URLQueryItem(name: "offset", value: "\(offset)")]
-        let (data, _) = try await request(path: "api/history/?limit=\(limit)&offset=\(offset)")
+        comp.queryItems = [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+        ]
+        guard let url = comp.url else { throw APIError.invalidResponse }
+        let (data, _) = try await request(url: url)
         return try JSONDecoder().decode(HistoryListResponse.self, from: data)
     }
 
@@ -129,5 +143,10 @@ final class APIClient {
             throw APIError.invalidResponse
         }
         return try JSONDecoder().decode(AuditResult.self, from: resultData)
+    }
+
+    func adminStats() async throws -> AdminStats {
+        let (data, _) = try await request(path: "api/admin/stats")
+        return try JSONDecoder().decode(AdminStats.self, from: data)
     }
 }

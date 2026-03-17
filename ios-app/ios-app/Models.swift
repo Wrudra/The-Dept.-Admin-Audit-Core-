@@ -37,6 +37,30 @@ struct HistoryListResponse: Codable {
     let offset: Int
 }
 
+// MARK: - Admin
+
+struct AdminRecentRun: Codable {
+    let run_id: String
+    let program: String
+    let status: String
+    let transcript_filename: String?
+    let created_at: String
+    let cgpa: Double?
+    let credit_completed: Double?
+    let required_credits: Double?
+    let user_email: String
+    let user_name: String
+}
+
+struct AdminStats: Codable {
+    let total_runs: Int
+    let total_users: Int
+    let runs_by_program: [String: Int]
+    let avg_cgpa: Double?
+    let avg_credits: Double?
+    let recent_runs: [AdminRecentRun]
+}
+
 // MARK: - Audit choices
 
 // MARK: - Audit choices (pick and yes_no from API)

@@ -2,17 +2,14 @@
 //  LoginView.swift
 //  ios-app
 //
-//  Sign in with Google (device flow): show user code, open verification URL.
+//  Sign in with North South account (native Google OAuth PKCE).
 //
 
 import SwiftUI
-import AuthenticationServices
 
 struct LoginView: View {
     @StateObject private var auth = AuthService.shared
-    @State private var userCode = ""
-    @State private var verificationURL: URL?
-    @State private var isWaiting = false
+    @State private var isSigningIn = false
     @State private var errorMessage: String?
     @State private var showError = false
 
@@ -35,23 +32,23 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 32)
 
-                if isWaiting {
+                if isSigningIn {
                     VStack(spacing: 12) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: Theme.textMuted))
                             .scaleEffect(1.2)
-                        Text("Waiting for you to sign in…")
+                        Text("Signing you in…")
                             .font(.system(size: 14, weight: .light))
                             .foregroundStyle(Theme.textMuted)
                     }
                     .padding(.vertical, 24)
-                } else if userCode.isEmpty {
+                } else {
                     Button {
-                        startDeviceFlow()
+                        startSignIn()
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "globe")
-                            Text("Continue with Google")
+                            Image(systemName: "person.crop.circle")
+                            Text("Sign in with North South account")
                                 .tracking(0.12)
                         }
                         .font(.system(size: 13, weight: .light))
@@ -61,34 +58,6 @@ struct LoginView: View {
                         .foregroundStyle(Theme.background)
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 24)
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Enter this code in your browser:")
-                            .font(.system(size: 14, weight: .light))
-                            .foregroundStyle(Theme.textMuted)
-                        Text(userCode)
-                            .font(.system(size: 24, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Theme.textPrimary)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 16)
-                            .background(Theme.surface)
-                            .overlay(Rectangle().stroke(Theme.line, lineWidth: 1))
-                        if let url = verificationURL {
-                            Button {
-                                UIApplication.shared.open(url)
-                            } label: {
-                                Text("Open browser to sign in")
-                                    .font(.system(size: 14, weight: .light))
-                                    .foregroundStyle(Theme.textPrimary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.surface)
-                    .overlay(Rectangle().stroke(Theme.line, lineWidth: 1))
                     .padding(.horizontal, 24)
                 }
 
@@ -102,35 +71,23 @@ struct LoginView: View {
         .alert("Sign-in failed", isPresented: $showError) {
             Button("OK") {
                 errorMessage = nil
-                userCode = ""
-                verificationURL = nil
-                isWaiting = false
+                isSigningIn = false
             }
         } message: {
             if let msg = errorMessage { Text(msg) }
         }
     }
 
-    private func startDeviceFlow() {
+    private func startSignIn() {
         errorMessage = nil
-        userCode = ""
-        verificationURL = nil
-        isWaiting = true
+        isSigningIn = true
         Task {
             do {
-                try await auth.runDeviceFlow { code, url in
-                    DispatchQueue.main.async {
-                        userCode = code
-                        verificationURL = url
-                        UIApplication.shared.open(url)
-                    }
-                }
-                isWaiting = false
-                userCode = ""
-                verificationURL = nil
+                try await auth.signInWithNorthSouthAccount()
+                isSigningIn = false
             } catch {
                 DispatchQueue.main.async {
-                    isWaiting = false
+                    isSigningIn = false
                     errorMessage = error.localizedDescription
                     showError = true
                 }
