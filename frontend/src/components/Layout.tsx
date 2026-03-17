@@ -3,6 +3,7 @@ import { Outlet, NavLink } from "react-router-dom";
 import { Box, useMediaQuery, useTheme } from "@mui/material";
 import { useAuthStore } from "../store/authStore";
 import { SERIF, SANS } from "../theme";
+import logoUrl from "../assets/logo.png";
 
 const NAV = [
   { label: "Dashboard", path: "/dashboard" },
@@ -57,15 +58,38 @@ export default function Layout() {
           component={NavLink as React.ElementType}
           to="/dashboard"
           sx={{
-            fontFamily: SERIF,
-            fontStyle: "italic",
-            fontSize: "1.125rem",
             color: "text.primary",
             textDecoration: "none",
-            letterSpacing: "-0.01em",
+            display: "flex",
+            alignItems: "center",
+            gap: 1.25,
           }}
         >
-          NSU Audit
+          <Box
+            component="img"
+            src={logoUrl}
+            alt="NSU Audit"
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: "8px",
+              objectFit: "contain",
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+            }}
+          />
+          <Box
+            sx={{
+              fontFamily: SERIF,
+              fontStyle: "italic",
+              fontSize: "1.125rem",
+              letterSpacing: "-0.01em",
+              lineHeight: 1,
+            }}
+          >
+            NSU Audit
+          </Box>
         </Box>
 
         {/* Desktop nav links */}

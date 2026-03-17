@@ -18,18 +18,31 @@ struct LoginView: View {
             Theme.background.ignoresSafeArea()
             VStack(spacing: 0) {
                 Spacer()
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("STUDENT PORTAL")
-                        .overlineLabel()
-                    Text("Sign in to")
-                        .font(.system(size: 34, weight: .regular, design: .serif))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("your audit.")
-                        .font(.system(size: 34, weight: .regular, design: .serif))
-                        .italic()
-                        .foregroundStyle(Theme.textPrimary)
+                VStack(spacing: 24) {
+                    Image("Logo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 120, height: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Theme.line, lineWidth: 1)
+                        )
+                    VStack(alignment: .center, spacing: 16) {
+                        Text("WELCOME TO NSU AUDIT")
+                            .overlineLabel()
+                        Text("Sign in to")
+                            .font(.system(size: 34, weight: .regular, design: .serif))
+                            .foregroundStyle(Theme.textPrimary)
+                        Text("your audit.")
+                            .font(.system(size: 34, weight: .regular, design: .serif))
+                            .italic()
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
                 .padding(.bottom, 32)
 
                 if isSigningIn {

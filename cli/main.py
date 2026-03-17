@@ -23,6 +23,7 @@ from rich.padding import Padding
 
 from .auth import load_token, save_token, delete_token, require_token, device_login
 from . import api as _api
+from .branding import header_lines
 
 app = typer.Typer(
     name="nsu-audit",
@@ -940,11 +941,8 @@ def _tui() -> None:
 
         rprint()
         rprint(_btop())
-        rprint(_bline("  NSU AUDIT TOOL"))
-        if username:
-            rprint(_bline(f"  Welcome, {username}"))
-        else:
-            rprint(_bline("  Not logged in"))
+        for line in header_lines(username):
+            rprint(_bline(line))
         rprint(_bbot())
         rprint()
 

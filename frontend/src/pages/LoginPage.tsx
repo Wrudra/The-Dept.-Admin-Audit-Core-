@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router-dom";
 import { Box, Button, Typography } from "@mui/material";
 import GoogleIcon from "@mui/icons-material/Google";
 import { SERIF, SANS } from "../theme";
+import logoUrl from "../assets/logo.png";
 
 const ERROR_MESSAGES: Record<string, string> = {
   domain:
@@ -31,26 +32,60 @@ export default function LoginPage() {
       }}
     >
       <Box sx={{ textAlign: "center", maxWidth: 400, width: "100%" }}>
-        {/* Section label */}
-        <Typography variant="overline" color="text.secondary">
-          Student Portal
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+          <Box
+            component="img"
+            src={logoUrl}
+            alt="NSU Audit"
+            sx={{
+              width: 120,
+              height: 120,
+              borderRadius: "18px",
+              objectFit: "contain",
+              bgcolor: "background.paper",
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          />
+        </Box>
 
-        {/* Headline */}
+        {/* Welcoming label */}
         <Typography
+          variant="overline"
           sx={{
-            fontFamily: SERIF,
-            fontSize: "clamp(40px, 8vw, 64px)",
-            lineHeight: 1.1,
-            color: "text.primary",
-            mt: 1,
-            mb: 5,
+            color: "text.secondary",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            display: "block",
           }}
         >
-          Sign in to
-          <br />
-          <em>your audit.</em>
+          Welcome to NSU Audit
         </Typography>
+
+        {/* Headline (match iOS split) */}
+        <Box sx={{ mt: 1, mb: 5 }}>
+          <Typography
+            sx={{
+              fontFamily: SERIF,
+              fontSize: "clamp(40px, 8vw, 64px)",
+              lineHeight: 1.1,
+              color: "text.primary",
+            }}
+          >
+            Sign in to
+          </Typography>
+          <Typography
+            sx={{
+              fontFamily: SERIF,
+              fontSize: "clamp(40px, 8vw, 64px)",
+              lineHeight: 1.1,
+              color: "text.primary",
+              fontStyle: "italic",
+            }}
+          >
+            your audit.
+          </Typography>
+        </Box>
 
         {/* Google button */}
         <Button
@@ -78,7 +113,7 @@ export default function LoginPage() {
             },
           }}
         >
-          Continue with Google
+          Sign in with North South account
         </Button>
 
         {/* Error message */}
