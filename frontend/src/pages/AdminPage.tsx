@@ -42,6 +42,7 @@ function cgpaColor(cgpa: number | null): string {
 function sourceLabel(src: string | null) {
   if (src === "mcp") return "MCP";
   if (src === "cli") return "CLI";
+  if (src === "ios") return "iOS";
   return "Web";
 }
 

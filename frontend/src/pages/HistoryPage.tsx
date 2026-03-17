@@ -113,6 +113,8 @@ export default function HistoryPage() {
                     ? "MCP"
                     : r.source === "cli"
                       ? "CLI"
+                      : r.source === "ios"
+                        ? "iOS"
                       : "Web"
                 }
                 size="small"

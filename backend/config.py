@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     google_cli_client_id:     str
     google_cli_client_secret: str
 
+    # ── Google OAuth — iOS (Native PKCE) ─────────────────────────────────────
+    # Public client ID only; the iOS app performs PKCE and no secret is used.
+    google_ios_client_id:     str = ""
+
     google_redirect_uri: str
     google_allowed_hd:   str = "northsouth.edu"
 

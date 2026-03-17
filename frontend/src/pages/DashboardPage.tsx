@@ -182,6 +182,8 @@ export default function DashboardPage() {
                     ? "MCP"
                     : r.source === "cli"
                       ? "CLI"
+                      : r.source === "ios"
+                        ? "iOS"
                       : "Web"
                 }
                 size="small"

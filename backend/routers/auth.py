@@ -144,6 +144,28 @@ async def device_exchange(
     return {"access_token": token, "token_type": "bearer"}
 
 
+# ── Mobile (iOS) Exchange — id_token → API JWT ───────────────────────────────
+
+@router.post("/mobile/exchange", summary="Exchange mobile id_token for API JWT")
+async def mobile_exchange(
+    body: DeviceExchangeRequest,
+    db:   AsyncSession = Depends(get_db),
+) -> dict:
+    """Exchange a Google id_token minted for the iOS OAuth client into an API JWT.
+
+    The iOS app performs a native PKCE OAuth flow with its own Google client ID,
+    obtains an id_token, and calls this endpoint to receive the NSU Audit JWT.
+    """
+    if not settings.google_ios_client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_IOS_CLIENT_ID is not configured.")
+
+    claims   = await verify_id_token(body.id_token, settings.google_ios_client_id)
+    user     = await _upsert_user(db, claims)
+    is_admin = user.email in settings.admin_emails_list
+    token    = create_token(user.id, user.google_sub, user.email, user.display_name, is_admin)
+    return {"access_token": token, "token_type": "bearer"}
+
+
 # ── Shared helper ─────────────────────────────────────────────────────────────
 
 async def _upsert_user(db: AsyncSession, claims: dict) -> User:
