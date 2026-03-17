@@ -67,16 +67,5 @@ TranscriptMIC2.jpeg
 *.tmp
 *.bak
 
-# Xcode / iOS
-xcuserdata/
-*.xcuserstate
-DerivedData/
-*.moved-aside
-*.pbxuser
-*.mode1v3
-*.mode2v3
-*.perspectivev3
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
+# ios app
+ios-app.xcodeproj/
