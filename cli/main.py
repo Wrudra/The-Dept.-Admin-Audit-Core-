@@ -10,6 +10,7 @@ Usage:
 """
 import json
 import os
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -20,10 +21,14 @@ from rich import print as rprint
 from rich.table import Table
 from rich import box
 from rich.padding import Padding
+from rich.console import Group
+from rich.panel import Panel
+from rich.text import Text
+from rich.markup import escape
 
 from .auth import load_token, save_token, delete_token, require_token, device_login
 from . import api as _api
-from .branding import header_lines
+from .branding import header_panel
 
 app = typer.Typer(
     name="nsu-audit",
@@ -95,36 +100,29 @@ _GROUP_LABELS: dict[str, str] = {
     "other":            "Course Selections",
 }
 
-# ── Box-drawing helpers (adaptive width, color #c15f3c) ──────────────────────
-_BC = "#c15f3c"  # border colour
-_INDENT = 2      # leading spaces before ╔
-_PAD    = 2      # spaces between border and content on each side
+# ── Content panels (double border, width fits inner lines) ───────────────────
+_BC = "#c15f3c"
 
-def _bw() -> int:
-    """Inner box width — terminal width minus indent and the two border chars."""
-    import shutil
-    cols = shutil.get_terminal_size(fallback=(132, 24)).columns
-    # total line = _INDENT + 1(╔) + _bw + 1(╗)  →  _bw = cols - _INDENT - 2
-    # floor at 60 so the box never collapses on tiny terminals
-    return max(60, cols - _INDENT - 2)
 
-def _btop() -> str:
-    return f"[{_BC}]{' '*_INDENT}╔{'═'*_bw()}╗[/{_BC}]"
-def _bsep() -> str:
-    return f"[{_BC}]{' '*_INDENT}╠{'═'*_bw()}╣[/{_BC}]"
-def _bbot() -> str:
-    return f"[{_BC}]{' '*_INDENT}╚{'═'*_bw()}╝[/{_BC}]"
-def _bline(text: str = "") -> str:
-    from rich.markup import escape
-    content_w = _bw() - 2 * _PAD
-    # Use len(text) for padding arithmetic (visual width, before escaping),
-    # then escape so Rich doesn't swallow brackets like [y/N] as markup tags.
-    padding = max(0, content_w - len(text))
-    padded  = escape(text) + " " * padding
-    return (
-        f"[{_BC}]{' '*_INDENT}║[/{_BC}]"
-        f"{' '*_PAD}{padded}{' '*_PAD}"
-        f"[{_BC}]║[/{_BC}]"
+def _content_panel(rows: list[str | None]) -> Panel:
+    """Render lines inside a compact Panel. Use None for an inner horizontal rule."""
+    str_rows = [r for r in rows if r is not None]
+    max_len = max((len(r) for r in str_rows), default=12)
+    term = shutil.get_terminal_size(fallback=(100, 24)).columns
+    sep_w = max(8, min(max_len, max(12, term - 8)))
+
+    parts: list[Text] = []
+    for r in rows:
+        if r is None:
+            parts.append(Text("─" * sep_w, style=_BC))
+        else:
+            parts.append(Text(escape(r)))
+    return Panel(
+        Group(*parts),
+        border_style=_BC,
+        box=box.DOUBLE,
+        expand=False,
+        padding=(0, 1),
     )
 
 
@@ -168,9 +166,7 @@ def _collect_answers_interactive(api_url, token, transcript, program):
 
         if not header_shown:
             rprint()
-            rprint(_btop())
-            rprint(_bline("CONFIGURE THE AUDIT"))
-            rprint(_bbot())
+            rprint(_content_panel(["CONFIGURE THE AUDIT"]))
             header_shown = True
 
         yn_remaining   = [c for c in remaining if c["type"] == "yes_no"]
@@ -180,17 +176,18 @@ def _collect_answers_interactive(api_url, token, transcript, program):
         diverged = False
         if yn_remaining:
             rprint()
-            rprint(_btop())
-            rprint(_bline("WAIVER CHECK"))
-            rprint(_bline("Waived courses count toward Credit Completed only (not Credit Counted or CGPA)."))
-            rprint(_bsep())
-            rprint(_bline())
+            waiver_rows: list[str | None] = [
+                "WAIVER CHECK",
+                "Waived courses count toward Credit Completed only (not Credit Counted or CGPA).",
+                None,
+                "",
+            ]
             for c in yn_remaining:
                 default = c.get("selected", False)
                 hint    = "[Y/n]" if default else "[y/N]"
-                rprint(_bline(f"  {c['prompt']} {hint}"))
-            rprint(_bline())
-            rprint(_bbot())
+                waiver_rows.append(f"  {c['prompt']} {hint}")
+            waiver_rows.append("")
+            rprint(_content_panel(waiver_rows))
             # Collect answers after the box is fully drawn
             verdicts: list[str] = []
             for c in yn_remaining:
@@ -207,11 +204,7 @@ def _collect_answers_interactive(api_url, token, transcript, program):
                 verdicts.append(f"  \u2713  {course} \u2014 {verdict}.")
                 if answers[c["key"]] != default:
                     diverged = True
-            # Summary confirmation box
-            rprint(_btop())
-            for v in verdicts:
-                rprint(_bline(v))
-            rprint(_bbot())
+            rprint(_content_panel(verdicts))
             if diverged:
                 continue  # re-discover with waiver answers
 
@@ -224,20 +217,17 @@ def _collect_answers_interactive(api_url, token, transcript, program):
             default_sel = c.get("selected", options[0] if options else "")
             default_idx = (options.index(default_sel) + 1) if default_sel in options else 1
 
+            pick_rows: list[str | None] = []
             if group != prev_group:
                 group_label = _GROUP_LABELS.get(group, "Course Selections")
                 rprint()
-                rprint(_btop())
-                rprint(_bline(group_label.upper()))
-                rprint(_bsep())
+                pick_rows.extend([group_label.upper(), None])
                 prev_group = group
-
-            rprint(_bline())
-            rprint(_bline(f"  {label}"))
+            pick_rows.extend(["", f"  {label}"])
             for i, (opt, disp) in enumerate(zip(options, display), 1):
                 marker = "  \u25c4 default" if opt == default_sel else ""
-                rprint(_bline(f"    {i}. {disp}{marker}"))
-            rprint(_bbot())
+                pick_rows.append(f"    {i}. {disp}{marker}")
+            rprint(_content_panel(pick_rows))
 
             while True:
                 raw = typer.prompt(
@@ -258,9 +248,7 @@ def _collect_answers_interactive(api_url, token, transcript, program):
                 rprint(f"  [red]Enter a number between 1 and {len(options)}.[/red]")
 
             chosen_disp = display[options.index(answers[c["key"]])]
-            rprint(_btop())
-            rprint(_bline(f"    \u2713  {chosen_disp}  selected."))
-            rprint(_bbot())
+            rprint(_content_panel([f"    \u2713  {chosen_disp}  selected."]))
 
             if answers[c["key"]] != default_sel:
                 diverged = True
@@ -565,37 +553,37 @@ def _print_result(result: dict, run_id: str, transcript_name: str = "") -> None:
 
     if major_els or open_el or free_els:
         rprint()
-        rprint(_btop())
-        rprint(_bline("SELECTED ELECTIVES  (included in credit tally)"))
-        rprint(_bsep())
+        el_rows: list[str | None] = [
+            "SELECTED ELECTIVES  (included in credit tally)",
+            None,
+        ]
         for e in major_els:
-            rprint(_bline(f"  \u25b8 {e}   [Major Elective]"))
+            el_rows.append(f"  \u25b8 {e}   [Major Elective]")
         if open_el:
             elec_lbl = "Free Elective" if program == "MIC" else "Open Elective"
-            rprint(_bline(f"  \u25b8 {open_el}   [{elec_lbl}]"))
+            el_rows.append(f"  \u25b8 {open_el}   [{elec_lbl}]")
         for e in free_els:
-            rprint(_bline(f"  \u25b8 {e}   [Free Elective]"))
-        rprint(_bbot())
+            el_rows.append(f"  \u25b8 {e}   [Free Elective]")
+        rprint(_content_panel(el_rows))
 
     # ── Minor Programs box (CSE only) ─────────────────────────────────────────
     minors = result.get("minor_programs") or []
     if minors:
         rprint()
-        rprint(_btop())
-        rprint(_bline("MINOR PROGRAM(S) DETECTED"))
+        min_rows: list[str | None] = ["MINOR PROGRAM(S) DETECTED"]
         for mp in minors:
-            rprint(_bsep())
+            min_rows.append(None)
             done_str = "\u2713 COMPLETE" if mp.get("complete") else f"\u2717 INCOMPLETE \u2014 {mp.get('progress', '')}"
-            rprint(_bline(f"  {mp['name']} ({mp['total_credits']} credits)   \u2014   {done_str}"))
+            min_rows.append(f"  {mp['name']} ({mp['total_credits']} credits)   \u2014   {done_str}")
             if mp.get("core_courses"):
-                rprint(_bline(f"  School Core (already required): {', '.join(mp['core_courses'])}"))
+                min_rows.append(f"  School Core (already required): {', '.join(mp['core_courses'])}")
             if mp.get("declared_courses"):
-                rprint(_bline(f"  Declared courses: {', '.join(mp['declared_courses'])}"))
+                min_rows.append(f"  Declared courses: {', '.join(mp['declared_courses'])}")
             cs = mp.get("choice_slot") or {}
             if cs.get("selected"):
                 opts = " or ".join(cs.get("options") or [])
-                rprint(_bline(f"  Elective slot ({opts}): {cs['selected']} \u2713"))
-        rprint(_bbot())
+                min_rows.append(f"  Elective slot ({opts}): {cs['selected']} \u2713")
+        rprint(_content_panel(min_rows))
 
     # ── CGPA & Credit Tally box ────────────────────────────────────────────────
     credit_passed    = float(result.get("credit_passed") or 0)
@@ -612,24 +600,32 @@ def _print_result(result: dict, run_id: str, transcript_name: str = "") -> None:
     cgpa_flag = "\u2713 MET (\u2265 2.0)" if cgpa_ok else "\u2717 PROBATION \u2014 below 2.0 minimum"
 
     rprint()
-    rprint(_btop())
-    rprint(_bline("CGPA & CREDIT TALLY REPORT"))
-    rprint(_bsep())
+    tally_rows: list[str | None] = ["CGPA & CREDIT TALLY REPORT", None]
     if transcript_name:
-        rprint(_bline(f"Transcript  :  {transcript_name}"))
-    rprint(_bline(f"Program     :  {program}"))
+        tally_rows.append(f"Transcript  :  {transcript_name}")
+    tally_rows.append(f"Program     :  {program}")
     for note in (result.get("waiver_notes") or []):
-        rprint(_bline(f"Waiver      :  {note}"))
-    rprint(_bsep())
-    rprint(_bline(f"CREDIT PASSED     :  {credit_passed:.1f}   (passing grades A\u2013D; counts toward graduation)"))
-    rprint(_bline(f"CREDIT COUNTED    :  {credit_counted:.1f}   (A\u2013F grades in curriculum; CGPA denominator)"))
+        tally_rows.append(f"Waiver      :  {note}")
+    tally_rows.extend(
+        [
+            None,
+            f"CREDIT PASSED     :  {credit_passed:.1f}   (passing grades A\u2013D; counts toward graduation)",
+            f"CREDIT COUNTED    :  {credit_counted:.1f}   (A\u2013F grades in curriculum; CGPA denominator)",
+        ]
+    )
     if required_credits is not None:
-        rprint(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f} / {required_credits} required   [{cr_flag}]"))
+        tally_rows.append(
+            f"CREDIT COMPLETED  :  {credit_completed:.1f} / {required_credits} required   [{cr_flag}]"
+        )
     else:
-        rprint(_bline(f"CREDIT COMPLETED  :  {credit_completed:.1f}"))
-    rprint(_bline(f"CGPA              :  {cgpa:.2f}   [{standing}]   [{cgpa_flag}]"))
-    rprint(_bline(f"Grade Points      :  {total_gp:.2f}  \u00f7  {credit_counted:.1f} Credit Counted"))
-    rprint(_bbot())
+        tally_rows.append(f"CREDIT COMPLETED  :  {credit_completed:.1f}")
+    tally_rows.extend(
+        [
+            f"CGPA              :  {cgpa:.2f}   [{standing}]   [{cgpa_flag}]",
+            f"Grade Points      :  {total_gp:.2f}  \u00f7  {credit_counted:.1f} Credit Counted",
+        ]
+    )
+    rprint(_content_panel(tally_rows))
 
     # ── Course tables ─────────────────────────────────────────────────────────
     detail   = result.get("per_course_detail") or []
@@ -675,68 +671,73 @@ def _print_result(result: dict, run_id: str, transcript_name: str = "") -> None:
         if cgpa < 2.0 else standing
     )
     rprint()
-    rprint(_btop())
-    rprint(_bline(f"Credit Passed                :  {credit_passed:.1f}   (passing grades A\u2013D; toward graduation)"))
-    rprint(_bline(f"Credit Counted               :  {credit_counted:.1f}   (A\u2013F grades; CGPA denominator \u2014 includes F where applicable)"))
-    rprint(_bline(f"Total Grade Points           :  {total_gp:.2f}"))
-    rprint(_bline(f"CGPA                         :  {cgpa:.2f}   ({standing})"))
-    rprint(_bline(f"Academic Standing            :  {standing_line}"))
-    rprint(_bbot())
+    rprint(
+        _content_panel(
+            [
+                f"Credit Passed                :  {credit_passed:.1f}   (passing grades A\u2013D; toward graduation)",
+                f"Credit Counted               :  {credit_counted:.1f}   (A\u2013F grades; CGPA denominator \u2014 includes F where applicable)",
+                f"Total Grade Points           :  {total_gp:.2f}",
+                f"CGPA                         :  {cgpa:.2f}   ({standing})",
+                f"Academic Standing            :  {standing_line}",
+            ]
+        )
+    )
 
     # ── Deficiency Report box ─────────────────────────────────────────────────
     deficiency = result.get("deficiency") or {}
     eligible   = deficiency.get("eligible", False)
     status_str = "\u2713  ELIGIBLE FOR GRADUATION" if eligible else "\u2717  NOT ELIGIBLE FOR GRADUATION"
-    content_w  = _bw() - 2 * _PAD
+    wrap_w = min(96, max(48, shutil.get_terminal_size(fallback=(100, 24)).columns - 8))
 
-    rprint()
-    rprint(_btop())
-    rprint(_bline("DEFICIENCY REPORT"))
-    rprint(_bsep())
+    def_rows: list[str | None] = [
+        "DEFICIENCY REPORT",
+        None,
+    ]
     if transcript_name:
-        rprint(_bline(f"Transcript  :  {transcript_name}"))
-    rprint(_bline(f"Program     :  {program}"))
-    rprint(_bsep())
-    rprint(_bline(f"Graduation Status  :  {status_str}"))
-    rprint(_bsep())
+        def_rows.append(f"Transcript  :  {transcript_name}")
+    def_rows.extend([f"Program     :  {program}", None, f"Graduation Status  :  {status_str}", None])
 
     if eligible:
-        rprint(_bline("  All requirements satisfied. Student is cleared for graduation."))
+        def_rows.append("  All requirements satisfied. Student is cleared for graduation.")
     else:
         sf = float(deficiency.get("credit_shortfall") or 0)
         if sf > 0:
-            rprint(_bline(f"  \u25b8 Credit shortfall     :  {sf:.1f} credit(s) below the required total"))
+            def_rows.append(
+                f"  \u25b8 Credit shortfall     :  {sf:.1f} credit(s) below the required total"
+            )
         if deficiency.get("probation"):
-            rprint(_bline("  \u25b8 Probation            :  CGPA is below the 2.0 minimum required for graduation"))
+            def_rows.append(
+                "  \u25b8 Probation            :  CGPA is below the 2.0 minimum required for graduation"
+            )
         for mm in (deficiency.get("missing_mandatory") or []):
             cat   = mm.get("category", "")
             items = mm.get("courses") or []
             label = f"  \u25b8 Missing [{cat}]"
             full  = f"{label}  :  {', '.join(items)}"
-            if len(full) <= content_w:
-                rprint(_bline(full))
+            if len(full) <= wrap_w:
+                def_rows.append(full)
             else:
-                rprint(_bline(label))
+                def_rows.append(label)
                 chunk = ""
                 for item in items:
                     candidate = chunk + ("  " if chunk else "      ") + item
-                    if len(candidate) <= content_w - 2:
+                    if len(candidate) <= wrap_w - 2:
                         chunk = candidate
                     else:
                         if chunk:
-                            rprint(_bline(chunk))
+                            def_rows.append(chunk)
                         chunk = "      " + item
                 if chunk:
-                    rprint(_bline(chunk))
+                    def_rows.append(chunk)
         if deficiency.get("prereq_failures_list"):
-            rprint(_bline("  \u25b8 Prerequisite failures:"))
+            def_rows.append("  \u25b8 Prerequisite failures:")
             for pf in deficiency["prereq_failures_list"]:
                 detail = pf.get("reason", "").removeprefix("prereq not met: ")
-                rprint(_bline(f"      {pf['course']}  \u2014  needs: {detail}"))
+                def_rows.append(f"      {pf['course']}  \u2014  needs: {detail}")
 
-    rprint(_bsep())
-    rprint(_bline(f"  {deficiency.get('retake_note', '')}"))
-    rprint(_bbot())
+    def_rows.extend([None, f"  {deficiency.get('retake_note', '')}"])
+    rprint()
+    rprint(_content_panel(def_rows))
 
     rprint()
     rprint(f"[dim]  Run ID: {run_id[:8]}[/dim]")
@@ -860,26 +861,24 @@ def _tui_do_admin_stats(token: str) -> None:
         input("\n  Press Enter to continue…")
         return
 
-    rprint(_btop())
-    rprint(_bline("ADMIN STATS"))
-    rprint(_bsep())
+    admin_rows: list[str | None] = ["ADMIN STATS", None]
     for k, v in data.items():
         if isinstance(v, dict):
-            rprint(_bline(f"  {k}:"))
+            admin_rows.append(f"  {k}:")
             for dk, dv in v.items():
-                rprint(_bline(f"      {dk}: {dv}"))
+                admin_rows.append(f"      {dk}: {dv}")
         elif isinstance(v, list):
-            rprint(_bline(f"  {k}:  ({len(v)} entries)"))
-            for i, item in enumerate(v, 1):
-                rprint(_bsep())
+            admin_rows.append(f"  {k}:  ({len(v)} entries)")
+            for _i, item in enumerate(v, 1):
+                admin_rows.append(None)
                 if isinstance(item, dict):
                     for ik, iv in item.items():
-                        rprint(_bline(f"    {ik}: {iv}"))
+                        admin_rows.append(f"    {ik}: {iv}")
                 else:
-                    rprint(_bline(f"    {item}"))
+                    admin_rows.append(f"    {item}")
         else:
-            rprint(_bline(f"  {k}: {v}"))
-    rprint(_bbot())
+            admin_rows.append(f"  {k}: {v}")
+    rprint(_content_panel(admin_rows))
     input("\n  Press Enter to return to menu…")
 
 
@@ -940,10 +939,7 @@ def _tui() -> None:
                 token = None
 
         rprint()
-        rprint(_btop())
-        for line in header_lines(username):
-            rprint(_bline(line))
-        rprint(_bbot())
+        rprint(header_panel(username))
         rprint()
 
         if token and username:

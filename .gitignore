@@ -68,5 +68,5 @@ TranscriptMIC2.jpeg
 *.bak
 
 # ios app
-ios-app/ios-app.xcodeproj/
-ios-app/ios-app/Info.plist
+# ios-app/ios-app.xcodeproj/
+# ios-app/ios-app/Info.plist

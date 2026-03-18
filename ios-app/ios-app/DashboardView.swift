@@ -78,9 +78,10 @@ struct DashboardView: View {
                             NavigationLink {
                                 AuditResultView(runId: r.run_id)
                             } label: {
-                                HistoryRowView(run: r)
+                                RecentRunRow(run: r)
                             }
                             .buttonStyle(.plain)
+                            Rectangle().fill(Theme.line).frame(height: 1)
                         }
                     }
                 }
@@ -162,37 +163,53 @@ private struct QuickActionRow: View {
     }
 }
 
-private struct HistoryRowView: View {
+/// Recent run row — same visual rhythm as QuickActionRow (title, subtitle, trailing arrow).
+private struct RecentRunRow: View {
     let run: HistoryRun
+
+    private var title: String {
+        if let f = run.transcript_filename, !f.isEmpty { return f }
+        let id = run.run_id
+        if id.count > 12 { return "Audit \(id.prefix(8))…" }
+        return "Audit run"
+    }
+
+    private var subtitle: String {
+        var parts: [String] = [
+            run.program,
+            (run.source ?? "ios").uppercased(),
+        ]
+        if let c = run.cgpa {
+            parts.append(String(format: "CGPA %.2f", c))
+        }
+        parts.append(formatDate(run.created_at))
+        if run.status.lowercased() != "completed" {
+            parts.append(run.status.uppercased())
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Chip(text: run.program, primary: true)
-                Chip(text: (run.source ?? "ios").uppercased(), primary: false)
-                Spacer()
-                Image(systemName: "chevron.right")
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 16, weight: .light))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(subtitle)
                     .font(.system(size: 12, weight: .light))
                     .foregroundStyle(Theme.textMuted)
+                    .lineLimit(2)
             }
-            Text(run.transcript_filename ?? "uploaded transcript")
-                .font(.system(size: 14, weight: .light))
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            HStack(spacing: 10) {
-                if let cgpa = run.cgpa {
-                    Text(String(format: "CGPA %.2f", cgpa))
-                        .font(.system(size: 11, weight: .light))
-                        .foregroundStyle(Theme.textMuted)
-                }
-                Text(formatDate(run.created_at))
-                    .font(.system(size: 11, weight: .light))
-                    .foregroundStyle(Theme.textMuted)
-                Spacer()
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.textMuted)
         }
-        .padding(.vertical, 14)
-        Rectangle().fill(Theme.line).frame(height: 1)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func formatDate(_ iso: String) -> String {
