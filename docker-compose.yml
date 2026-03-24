@@ -1,10 +1,10 @@
-# NSU Audit — Docker Compose (development)
-# Optimised for Apple Silicon (ARM64) — all images have official ARM64 variants.
+# NSU Audit — Docker Compose (production-like defaults)
 #
 # Usage:
-#   docker compose up --build          # start all services
-#   docker compose run --rm api alembic upgrade head   # run DB migrations
-#   docker compose down -v             # stop + remove volumes
+#   docker compose up --build                 # production-like stack
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#                                           # development stack with hot reload
+#   docker compose down -v                    # stop + remove volumes
 
 services:
   # ── PostgreSQL 16 ──────────────────────────────────────────────────────────
@@ -36,23 +36,31 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # Override DATABASE_URL with the Docker service hostname
+      # Override DATABASE_URL with Docker service hostname.
       DATABASE_URL: >-
         postgresql://${POSTGRES_USER:-nsu_audit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nsu_audit_db}
-      APP_ENV: development
+      APP_ENV: ${APP_ENV:-production}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,db,api,frontend}
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      # Hot-reload: mount source for development (comment out for production)
-      - .:/app
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     command: >
-      uvicorn backend.main:app
-        --host 0.0.0.0
-        --port 8000
-        --reload
+      sh -c "alembic upgrade head &&
+      exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"
 
   # ── React / Nginx frontend ─────────────────────────────────────────────────
   frontend:
@@ -61,9 +69,10 @@ services:
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
     ports:
-      - "5173:80" # dev port — matches CORS_ALLOWED_ORIGINS in .env
+      - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pg_data:
