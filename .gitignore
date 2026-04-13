@@ -45,6 +45,7 @@ pg_data/
 
 # mcp json
 opencode-mcp.json
+claude-mcp.json
 
 # Database and migrations
 alembic.ini
