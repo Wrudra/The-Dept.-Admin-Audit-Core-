@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Degree Audit System for North South University</strong><br/>
-  A full-stack platform that parses student transcripts, evaluates graduation eligibility against official program requirements, and delivers detailed audit reports — through a web app, a native iOS app, a CLI, or directly inside an AI assistant via MCP.
+  A full-stack platform that parses student transcripts, evaluates graduation eligibility against official program requirements, and delivers detailed audit reports through a web app, a native iOS app, a CLI, or directly inside an AI assistant via MCP.
 </p>
 
 <p align="center">
