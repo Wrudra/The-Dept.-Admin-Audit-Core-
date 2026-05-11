@@ -39,6 +39,7 @@ from typing import Optional
 
 import httpx
 from fastmcp import Context, FastMCP
+from mcp.types import Icon
 
 from ._auth import (
     clear_pending,
@@ -72,8 +73,15 @@ from ._gmail import (
 
 # ── MCP application ───────────────────────────────────────────────────────────
 
+_LOGO_PATH = Path(__file__).parent / "data" / "logo.png"
+_LOGO_SRC  = (
+    "data:image/png;base64,"
+    + base64.b64encode(_LOGO_PATH.read_bytes()).decode()
+) if _LOGO_PATH.exists() else ""
+
 mcp = FastMCP(
     name="nsu-audit",
+    icons=[Icon(src=_LOGO_SRC, mimeType="image/png")] if _LOGO_SRC else [],
     instructions="""
 NSU Graduation Audit server.
 Supported programs: CSE (130 cr) and MIC (120 cr).

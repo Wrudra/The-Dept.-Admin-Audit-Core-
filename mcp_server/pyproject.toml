@@ -21,4 +21,4 @@ where   = ["."]
 include = ["nsu_audit_mcp*"]
 
 [tool.setuptools.package-data]
-nsu_audit_mcp = ["data/*.json"]
+nsu_audit_mcp = ["data/*.json", "data/*.png"]
