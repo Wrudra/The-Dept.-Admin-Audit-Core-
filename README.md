@@ -29,7 +29,6 @@
   - [Available MCP Tools](#available-mcp-tools)
   - [Claude Skill](#claude-skill)
 - [Audit Engine](#audit-engine)
-- [API Endpoints](#api-endpoints)
 
 ---
 
@@ -181,7 +180,7 @@ The MCP server is mounted directly into the FastAPI app at `/mcp/mcp`. When the 
 {
   "mcpServers": {
     "nsu-audit": {
-      "url": "https://your-subdomain.ngrok-free.dev/mcp/mcp"
+      "url": "https://mara-xyloid-dortha.ngrok-free.dev/mcp/mcp"
     }
   }
 }
@@ -220,28 +219,3 @@ The audit runs through a three-level pipeline:
 The pipeline is orchestrated by `run_pipeline.py`, which chains the three levels and produces a single JSON result object consumed by all interfaces.
 
 Transcript parsing (`transcript_to_csv.py`) handles PDF-to-CSV conversion using Tesseract OCR with OpenCV preprocessing for accurate text extraction from scanned documents.
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/health` | Health check |
-| `POST` | `/api/auth/callback` | Google OAuth callback (web) |
-| `POST` | `/api/auth/device/start` | Start device-flow auth (CLI/MCP) |
-| `POST` | `/api/auth/device/exchange` | Exchange device code for session |
-| `GET` | `/api/auth/me` | Current user info |
-| `POST` | `/api/auth/logout` | End session |
-| `POST` | `/api/audit/run` | Upload transcript and run audit |
-| `GET` | `/api/history/` | List past audits (paginated) |
-| `GET` | `/api/history/:id` | Get a specific audit result |
-| `GET` | `/api/admin/stats` | Platform-wide statistics |
-| `GET` | `/api/gdrive/authorize/start` | Start Google Drive OAuth |
-| `GET` | `/api/gdrive/files` | Search user's Drive files |
-| `GET` | `/api/gdrive/files/:id/download` | Download a Drive file |
-| `GET` | `/api/gmail/authorize/start` | Start Gmail OAuth |
-| `POST` | `/api/gmail/send-report` | Email an audit report |
-| `POST` | `/mcp/mcp` | MCP Streamable HTTP endpoint |
-
-Full interactive documentation is available at `/api/docs` (Swagger UI) when the server is running.
